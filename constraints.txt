@@ -1,0 +1,24 @@
+# Exact versions sdt.cmd installs into .venv (tested together).
+# Pinning means a newer, possibly compromised release on PyPI is never pulled in silently.
+# To update: install newer versions in .venv, run the tests, then refresh this file with
+#   .venv\Scripts\python -m pip freeze --exclude-editable
+cffi==2.1.1
+cryptography==50.0.2
+linkify-it-py==2.2.0
+markdown-it-py==4.2.0
+mdit-py-plugins==0.6.1
+mdurl==0.1.2
+platformdirs==4.14.3
+pycparser==3.12
+Pygments==2.21.0
+rich==15.0.0
+spake2==0.9
+textual==8.2.8
+typing_extensions==4.16.0
+winrt-runtime==4.1.0
+winrt-Windows.Devices.Enumeration==4!10.0.28000.2957
+winrt-Windows.Devices.WiFiDirect==4!10.0.28000.2957
+winrt-Windows.Foundation==4!10.0.28000.2957
+winrt-Windows.Foundation.Collections==4!10.0.28000.2957
+winrt-Windows.Networking==4!10.0.28000.2957
+winrt-Windows.Storage.Streams==4!10.0.28000.2957
