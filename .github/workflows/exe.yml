@@ -32,7 +32,8 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install pinned dependencies and PyInstaller
-        run: python -I -m pip install --only-binary=:all: -c constraints.txt . "pyinstaller==6.22.2"
+        run: |
+          python -I -m pip install --only-binary=:all: -c constraints.txt . "pyinstaller==6.22.2"
       # To build locally: same two steps inside .venv (the exe then contains your local paths,
       # so publish only exes built here).
       - name: Build sdt.exe
