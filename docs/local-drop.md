@@ -76,6 +76,13 @@ sdt drop peers                   # just list receivers
 
 - **Windows Firewall** may ask once, on the receiver, the first time a link comes up.
   Allowing it is safe (see "What is exposed" above). If you deny it, the sender can't connect.
+  On a Windows account without admin rights, "Allow access" asks for an admin password.
+  sdt itself still runs without admin rights; the password only lets Windows add the rule.
+  The sender never gets this prompt: it only connects out.
+- **Finding the receiver** can take a while. The sender keeps looking for up to 30 seconds
+  (and stops as soon as it finds one). If it still finds nothing: check Wi-Fi is on on both
+  PCs, move them closer, and start `sdt drop receive` first. To check that a PC supports
+  Wi-Fi Direct, run `ipconfig /all` and look for a "Microsoft Wi-Fi Direct Virtual Adapter".
 - **First Wi-Fi Direct connection** between two PCs: Windows pairs them, and may show a
   prompt or notification. After that they show up under Settings → Bluetooth & devices.
 - Wi-Fi must be **on** on both PCs (it doesn't need to be connected to a network).

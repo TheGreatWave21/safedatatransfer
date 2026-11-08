@@ -44,6 +44,9 @@ OUI_TYPE = 0x01
 IE_PREFIX = b"sdt-drop/1|"
 IE_PROPERTY = "System.Devices.WiFiDirect.InformationElements"
 
+SCAN_TIMEOUT = 30.0  # seconds the sender looks for receivers at most
+SCAN_SETTLE = 4.0    # ...and at least, so several nearby receivers can show up
+
 
 class WifiDirectError(Exception):
     pass
@@ -86,6 +89,16 @@ def _sdt_elements(name: str):
     body = OUI + bytes([OUI_TYPE]) + value
     raw = bytes([221, len(body)]) + body  # 221 = vendor-specific element
     return WiFiDirectInformationElement.create_from_buffer(_to_buffer(raw))
+
+
+def _named(found: dict[str, Any]) -> list[WfdPeer]:
+    """The sdt receivers among the devices found so far (others have no sdt element)."""
+    peers = []
+    for dev_id, info in list(found.items()):
+        name = _peer_name(info)
+        if name is not None:
+            peers.append(WfdPeer(name, dev_id))
+    return peers
 
 
 def _peer_name(info) -> str | None:
@@ -200,7 +213,9 @@ class Advertiser:
         self._token = self._listener.add_connection_requested(on_request)
         self._publisher = WiFiDirectAdvertisementPublisher()
         adv = self._publisher.advertisement
-        adv.listen_state_discoverability = Discoverability.NORMAL
+        # INTENSIVE: listen more often, so slower adapters find us. Only while waiting
+        # for a sender; advertising stops as soon as a link is up.
+        adv.listen_state_discoverability = Discoverability.INTENSIVE
         adv.information_elements = _sdt_elements(self.name)
         self._publisher.start()
         for _ in range(50):
@@ -271,34 +286,67 @@ class Connector:
         self._device = None  # keep alive for the whole transfer
         self._paired_here: list[Any] = []
 
-    def scan(self, timeout: float = 6.0) -> list[WfdPeer]:
-        return self._lt.run(self._scan(timeout), timeout=timeout + 15)
+    def scan(self, timeout: float = SCAN_TIMEOUT, settle: float = SCAN_SETTLE,
+             done: Callable[[list[WfdPeer]], bool] | None = None,
+             on_wait: Callable[[int], None] | None = None) -> list[WfdPeer]:
+        """Look for sdt receivers for up to `timeout` seconds.
 
-    async def _scan(self, timeout: float) -> list[WfdPeer]:
+        Stops early once `done(peers)` is true (default: at least one receiver found)
+        and at least `settle` seconds have passed, so several nearby receivers can show
+        up before the list is used. Wi-Fi Direct discovery is slow on some (older)
+        adapters, so a short fixed scan misses receivers that are really there."""
+        return self._lt.run(self._scan(timeout, settle, done or bool, on_wait),
+                            timeout=timeout + 30)
+
+    async def _scan(self, timeout: float, settle: float,
+                    done: Callable[[list[WfdPeer]], bool],
+                    on_wait: Callable[[int], None] | None) -> list[WfdPeer]:
         loop = asyncio.get_running_loop()
         selector = WiFiDirectDevice.get_device_selector(WiFiDirectDeviceSelectorType.ASSOCIATION_ENDPOINT)
         watcher = DeviceInformation.create_watcher(selector, [IE_PROPERTY])
         found: dict[str, Any] = {}
 
-        def added(_w, info):
-            loop.call_soon_threadsafe(found.__setitem__, info.id, info)
+        def apply_update(upd) -> None:
+            info = found.get(upd.id)
+            if info is not None:
+                try:
+                    info.update(upd)
+                except Exception:
+                    pass
 
-        # Windows only raises Added events when Updated/Removed handlers exist too.
-        watcher.add_added(added)
-        watcher.add_updated(lambda _w, _u: None)
-        watcher.add_removed(lambda _w, _u: None)
+        # Windows often reports a device first WITHOUT its information elements and adds
+        # them in a later Updated event; ignoring updates loses receivers that are there.
+        watcher.add_added(lambda _w, info: loop.call_soon_threadsafe(found.__setitem__, info.id, info))
+        watcher.add_updated(lambda _w, upd: loop.call_soon_threadsafe(apply_update, upd))
+        watcher.add_removed(lambda _w, upd: loop.call_soon_threadsafe(found.pop, upd.id, None))
         watcher.add_enumeration_completed(lambda _w, _a: None)
         watcher.start()
+        start = loop.time()
+        rechecked: set[str] = set()
+        next_note = 10
         try:
-            await asyncio.sleep(timeout)
+            while True:
+                await asyncio.sleep(0.5)
+                elapsed = loop.time() - start
+                peers = _named(found)
+                if (peers and elapsed >= settle and done(peers)) or elapsed >= timeout:
+                    break
+                if elapsed >= settle:
+                    # Ask Windows directly for devices whose elements never arrived.
+                    for dev_id in [i for i in found if i not in rechecked][:5]:
+                        rechecked.add(dev_id)
+                        try:
+                            fresh = await asyncio.wait_for(
+                                DeviceInformation.create_from_id_async(dev_id, [IE_PROPERTY]), 3)
+                            found[dev_id] = fresh
+                        except Exception:
+                            pass
+                if on_wait and elapsed >= next_note:
+                    on_wait(int(elapsed))
+                    next_note += 10
         finally:
             watcher.stop()
-        peers = []
-        for info in found.values():
-            name = _peer_name(info)
-            if name is not None:
-                peers.append(WfdPeer(name, info.id))
-        return peers
+        return _named(found)
 
     def connect(self, peer: WfdPeer, timeout: float = 60.0) -> str:
         """Bring up the link and return the receiver's IP address on it."""

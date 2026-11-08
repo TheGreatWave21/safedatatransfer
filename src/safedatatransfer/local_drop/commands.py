@@ -49,10 +49,20 @@ def _this_pc() -> str:
 
 # ---------------------------------------------------------------- discovery
 
-def _discover(via: str, connector: wifidirect.Connector | None) -> list[Peer]:
+def _matches(name: str, to: str) -> bool:
+    return name.lower() == to.lower() or name.lower().startswith(to.lower())
+
+
+def _discover(via: str, connector: wifidirect.Connector | None, to: str | None = None) -> list[Peer]:
     if via == "lan":
         return [Peer(p.name, "lan", lan=p) for p in lan.discover()]
-    return [Peer(p.name, "wifi-direct", wfd=p) for p in connector.scan()]
+    # With --to, keep looking until that receiver shows up (not just any receiver).
+    done = (lambda peers: any(_matches(p.name, to) for p in peers)) if to else None
+    found = connector.scan(
+        done=done,
+        on_wait=lambda s: print(f"  still looking... ({s} s; Wi-Fi Direct can take up to "
+                                f"{int(wifidirect.SCAN_TIMEOUT)} s)"))
+    return [Peer(p.name, "wifi-direct", wfd=p) for p in found]
 
 
 def _connector(via: str) -> wifidirect.Connector | None:
@@ -87,7 +97,7 @@ def _pick(peers: list[Peer], to: str | None) -> Peer:
         # Exact name first. A partial name must match exactly one receiver, so a nearby
         # device with a similar name ("sdt-48" vs "sdt-4821") is never picked by accident.
         matches = [p for p in peers if p.name.lower() == to.lower()] or \
-            [p for p in peers if p.name.lower().startswith(to.lower())]
+            [p for p in peers if _matches(p.name, to)]
         if not matches:
             raise protocol.ProtocolError(f"No receiver named {to!r} found.")
         if len(matches) > 1:
@@ -131,10 +141,12 @@ def cmd_send(paths: list[Path], to: str | None, via: str, host: str | None, code
         else:
             connector = _connector(via)
             print("Looking for receivers...")
-            peers = _discover(via, connector)
+            peers = _discover(via, connector, to)
             if not peers:
                 print("No receivers found. Is `sdt drop receive` running on the other PC"
-                      + (" with --via lan?" if via == "lan" else "?"))
+                      + (" with --via lan?" if via == "lan" else
+                         "? Is Wi-Fi turned on on both PCs? Moving them closer and "
+                         "trying again often helps."))
                 return 1
             peer = _pick(peers, to)
             print(f"-> {peer.label()}")
