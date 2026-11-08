@@ -4,6 +4,7 @@
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -75,9 +76,66 @@ class HooksEndToEnd(unittest.TestCase):
         self.assertIn("error", out)
         self.assertFalse(self.dest.exists())
 
-    def test_empty_code_cancels(self):
-        result, _, _, _ = self._run(accept=lambda offer: True, sender_code=None)
-        self.assertIsInstance(result, drop.Cancelled)
+    def _closed_port(self) -> int:
+        s = socket.create_server(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        return port
+
+    def test_empty_code_cancels_before_connecting(self):
+        port = self._closed_port()
+        with self.assertRaises(drop.Cancelled):
+            drop.send([self.src], None, "wifi-direct", f"127.0.0.1:{port}", None,
+                      drop.Hooks(log=lambda m: None, ask_code=lambda: None))
+
+    def test_code_is_asked_before_connecting(self):
+        # A wrong-format code fails at once; no connection attempts (they'd take 30 s here).
+        port = self._closed_port()
+        t0 = time.monotonic()
+        with self.assertRaises(ValueError):
+            drop.send([self.src], None, "wifi-direct", f"127.0.0.1:{port}", None,
+                      drop.Hooks(log=lambda m: None, ask_code=lambda: "12"))
+        self.assertLess(time.monotonic() - t0, 3)
+
+    def test_slow_code_typing_does_not_break_the_transfer(self):
+        # The receiver accepts the connection only after the code was typed.
+        def slow_code():
+            time.sleep(1.0)
+            return "482-913"
+        server = socket.create_server(("127.0.0.1", 0))
+        port = server.getsockname()[1]
+        out: dict = {}
+        th = threading.Thread(target=self._receiver,
+                              args=(server, "482-913", lambda offer: True, out))
+        th.start()
+        n = drop.send([self.src], None, "wifi-direct", f"127.0.0.1:{port}", None,
+                      drop.Hooks(log=lambda m: None, ask_code=slow_code))
+        th.join(10)
+        self.assertEqual(n, 2)
+        self.assertNotIn("error", out)
+
+    def test_too_many_files_fail_early_with_a_clear_message(self):
+        files = [drop.protocol.OutgoingFile(Path("x"), f"folder/{'n' * 200}{i}.txt", 1)
+                 for i in range(200_000)]
+        with self.assertRaises(drop.protocol.ProtocolError) as ctx:
+            drop.protocol.check_offer_size(files)
+        self.assertIn("zip", str(ctx.exception))
+        # a big but normal folder (20,000 files) fits now (was ~1 MiB before)
+        drop.protocol.check_offer_size(files[:20_000])
+
+    def test_junction_inside_destination_is_not_followed(self):
+        import subprocess
+        outside = self.t / "outside"
+        outside.mkdir()
+        self.dest.mkdir()
+        r = subprocess.run(["cmd", "/c", "mklink", "/J", str(self.dest / "src"), str(outside)],
+                           capture_output=True)
+        if r.returncode != 0:
+            self.skipTest("cannot create a junction here")
+        result, out, _, _ = self._run(accept=lambda offer: True)
+        self.assertIsInstance(out.get("error"), drop.protocol.ProtocolError)
+        self.assertIn("outside", str(out["error"]))
+        self.assertEqual(list(outside.iterdir()), [], "nothing may be written through the junction")
 
     def test_stop_during_transfer_leaves_no_partial_file(self):
         big = self.src / "big.bin"

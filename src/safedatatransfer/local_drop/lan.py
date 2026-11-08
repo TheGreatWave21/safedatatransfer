@@ -83,7 +83,7 @@ def discover(timeout: float = 2.0) -> list[LanPeer]:
             try:
                 data, (host, _) = sock.recvfrom(1024)
                 info = json.loads(data)
-                if info.get("sdt") == 1:
+                if isinstance(info, dict) and info.get("sdt") == 1:
                     port = int(info["port"])
                     if not 1 <= port <= 65535:
                         continue

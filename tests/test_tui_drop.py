@@ -162,6 +162,27 @@ class DropTabTests(unittest.TestCase):
             self.run_app(steps)
         self.assertEqual(called, [])
 
+    def test_peer_names_are_not_markup(self):
+        from textual.widgets import OptionList
+
+        from safedatatransfer.tui.modals import PeerModal
+        peers = [drop.Peer("[b red]sdt-1234[/] (fake)", "wifi-direct"), drop.Peer("sdt-5678", "wifi-direct")]
+        picked = []
+
+        async def steps(app, pilot):
+            app.push_screen(PeerModal(peers), picked.append)
+            await pilot.pause(0.3)
+            # What is drawn must contain the brackets literally (not turned into formatting).
+            widget = app.screen.query_one("#peers", OptionList)
+            drawn = "".join(seg.text for y in range(widget.size.height)
+                            for seg in widget.render_line(y))
+            self.assertIn("[b red]sdt-1234[/]", drawn)
+            await pilot.press("down", "enter")
+            await pilot.pause(0.3)
+
+        self.run_app(steps)
+        self.assertEqual(picked, [peers[1]])
+
     def test_send_needs_files(self):
         async def steps(app, pilot):
             await pilot.press("s")

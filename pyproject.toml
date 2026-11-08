@@ -12,7 +12,7 @@ description = "Encrypted USB evacuation (copy, verify, wipe) and an AirDrop-styl
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.10"
+requires-python = ">=3.11"  # the pinned dependencies need 3.11+
 keywords = ["usb", "wipe", "encryption", "vault", "wifi-direct", "file-transfer"]
 classifiers = [
     "Development Status :: 3 - Alpha",

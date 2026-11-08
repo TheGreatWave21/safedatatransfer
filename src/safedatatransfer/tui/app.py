@@ -218,6 +218,7 @@ class SdtApp(App):
         self._progress_t = 0.0
         self._last_input = time.monotonic()
         self.send_paths: list[Path] = []
+        self.send_sizes: dict[Path, int] = {}
         self.drop_running = ""
 
     # ------------------------------------------------------------ privacy
@@ -916,14 +917,25 @@ class SdtApp(App):
 
     # ------------------------------------------------------------ local drop
 
+    @work(thread=True, group="sizes", exit_on_error=False)
+    def _measure(self, p: Path) -> None:
+        """Folder sizes are counted in the background, so a huge folder can't freeze the UI."""
+        size = _path_size(p)
+        self.call_from_thread(self._measured, p, size)
+
+    def _measured(self, p: Path, size: int) -> None:
+        self.send_sizes[p] = size
+        self._render_send_list()
+
     def _render_send_list(self) -> None:
         table = self.query_one("#send-list", DataTable)
         table.clear()
         total = 0
         for p in self.send_paths:
-            size = _path_size(p)
-            total += size
-            table.add_row(Text(str(p)), Text(human_size(size) + ("" if p.is_file() else "  (folder)")))
+            size = self.send_sizes.get(p)
+            total += size or 0
+            shown = "counting…" if size is None else human_size(size)
+            table.add_row(Text(str(p)), Text(shown + ("" if p.is_file() else "  (folder)")))
         hint = self.query_one("#send-hint", Static)
         if not self.send_paths:
             hint.update("Press [b]f[/b] to add a file or folder. You can drag it from Explorer "
@@ -1053,6 +1065,7 @@ class SdtApp(App):
         p = p.resolve()
         if p not in self.send_paths:
             self.send_paths.append(p)
+            self._measure(p)
         self._render_send_list()
 
     def action_drop_clear(self) -> None:

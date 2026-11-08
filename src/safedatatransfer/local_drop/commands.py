@@ -172,6 +172,7 @@ def send(paths: list[Path], to: str | None, via: str, host: str | None, code: st
     files = protocol.collect_files(paths, log)
     if not files:
         raise protocol.ProtocolError("Nothing to send.")
+    protocol.check_offer_size(files)  # before searching, not after the link is up
     total = sum(f.size for f in files)
     log(f"Sending {len(files)} files, {human_size(total)}")
 
@@ -180,6 +181,7 @@ def send(paths: list[Path], to: str | None, via: str, host: str | None, code: st
         if host:
             h, _, port = host.partition(":")
             target_host, target_port = h, int(port or protocol.TCP_PORT)
+            code = _get_code(code, hooks)
         else:
             connector = _connector(via)
             log("Looking for receivers...")
@@ -198,6 +200,9 @@ def send(paths: list[Path], to: str | None, via: str, host: str | None, code: st
                 if peer is None:
                     raise Cancelled()
             log(f"-> {peer.label()}")
+            # Ask for the code BEFORE the link: the receiver only waits a limited time
+            # for the connection and the code, so slow typing must not happen in between.
+            code = _get_code(code, hooks)
             if peer.via == "wifi-direct":
                 log("Bringing up the direct Wi-Fi link (Windows may show a pairing prompt the first time)...")
                 target_host, target_port = connector.connect(peer.wfd), protocol.TCP_PORT
@@ -207,9 +212,7 @@ def send(paths: list[Path], to: str | None, via: str, host: str | None, code: st
 
         sock = _connect_tcp(target_host, target_port, cancelled=hooks.cancelled)
         with sock:
-            code = code or hooks.ask_code()
-            if not code:
-                raise Cancelled()
+            sock.settimeout(60)  # create_connection left its 10 s connect timeout on the socket
             ch = protocol.handshake_sender(sock, code)
             log("Secure channel established (code verified).")
             protocol.send_files(ch, files, _this_pc(), log, hooks.checked_progress())
@@ -222,6 +225,15 @@ def send(paths: list[Path], to: str | None, via: str, host: str | None, code: st
 
 class NoReceivers(protocol.ProtocolError):
     pass
+
+
+def _get_code(code: str | None, hooks: Hooks) -> str:
+    code = code or hooks.ask_code()
+    if not code:
+        raise Cancelled()
+    protocol.normalize_code(code)  # wrong format: fail now (ValueError), before any link
+    hooks.check()
+    return code
 
 
 def cmd_send(paths: list[Path], to: str | None, via: str, host: str | None, code: str | None) -> int:

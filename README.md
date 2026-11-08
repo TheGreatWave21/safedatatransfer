@@ -46,7 +46,7 @@ Get-FileHash .\sdt.exe     # compare with sdt.exe.sha256
 .\sdt.exe
 ```
 
-The other ways need **Python 3.10+** (`winget install Python.Python.3.13`).
+The other ways need **Python 3.11+** (`winget install Python.Python.3.13`).
 
 **With pipx** (recommended: it gets its own private environment):
 

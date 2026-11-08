@@ -339,7 +339,8 @@ class PeerModal(ModalScreen[object | None]):
         with Vertical(id="dialog"):
             yield Static(Text("SEND TO WHICH PC?", style="bold"), classes="dialog-title")
             yield Label("Several receivers are nearby. Pick the name the other PC shows:")
-            yield OptionList(*[p.label() for p in self.peers], id="peers")
+            # Text(): names come from nearby devices; never interpret them as markup.
+            yield OptionList(*[Text(p.label()) for p in self.peers], id="peers")
             with Horizontal(classes="buttons"):
                 yield Button("Cancel  esc", id="cancel")
 

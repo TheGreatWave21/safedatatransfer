@@ -44,7 +44,9 @@ ID_RECEIVER = b"sdt-drop receiver"
 TCP_PORT = 47802
 
 MAX_HANDSHAKE_FRAME = 4096
-MAX_FRAME = CHUNK_SIZE + 1024
+# Data frames are at most CHUNK_SIZE; control frames (the file list) can be larger.
+# Only used after the code was verified, so only the real peer can send big frames.
+MAX_FRAME = 32 << 20
 MAX_FILES = 100_000
 T_JSON = b"J"
 T_DATA = b"D"
@@ -272,8 +274,20 @@ Log = Callable[[str], None]
 Progress = Callable[[int, int], None]  # (bytes done, bytes total)
 
 
+def check_offer_size(files: list[OutgoingFile]) -> None:
+    """Fail early, with a clear message, if the file list is too big for one transfer."""
+    if len(files) > MAX_FILES:
+        raise ProtocolError(f"Too many files for one transfer ({len(files):,}; at most "
+                            f"{MAX_FILES:,}). Put them into a zip file or send them in parts.")
+    approx = sum(len(f.rel.encode("utf-8")) + 40 for f in files) + 200
+    if approx > MAX_FRAME - 1024:
+        raise ProtocolError("The file list is too long for one transfer. Put the files into "
+                            "a zip file or send them in parts.")
+
+
 def send_files(ch: SecureChannel, files: list[OutgoingFile], sender_name: str, log: Log = print,
                progress: Progress | None = None) -> None:
+    check_offer_size(files)
     ch.send_json({
         "type": "offer", "sender": sender_name,
         "files": [{"path": f.rel, "size": f.size} for f in files],
@@ -340,12 +354,17 @@ def receive_files(
 
     dest.mkdir(parents=True, exist_ok=True)
     winfs.set_not_indexed(dest)
+    dest_real = dest.resolve()
     received: list[Path] = []
     done = 0
     for index, (rel, size) in enumerate(planned):
         start = ch.recv_json("file")
         if start.get("index") != index:
             raise ProtocolError("Files arrived out of order.")
+        # Defence in depth: rel is already sanitized, but a junction placed inside dest
+        # (by someone else) must not redirect received files to another folder.
+        if not (dest / rel).parent.resolve().is_relative_to(dest_real):
+            raise ProtocolError(f"{rel} would be written outside {dest} (link in the folder?).")
         final = _unique(dest / rel)
         final.parent.mkdir(parents=True, exist_ok=True)
         tmp = final.with_name(f".{final.name}.{secrets.token_hex(4)}.sdt-partial")

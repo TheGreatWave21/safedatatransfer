@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeout  # = TimeoutError on 3.11+
 from dataclasses import dataclass
 from typing import Any, Callable, Coroutine
 
@@ -207,7 +207,7 @@ class Advertiser:
         never left visible nearby."""
         try:
             self._lt.run(self._start(), timeout=15)
-        except TimeoutError as e:
+        except FutureTimeout as e:
             self.stop()
             raise WifiDirectError("Wi-Fi Direct advertising did not start within 15 s. "
                                   "Is Wi-Fi turned on?") from e
@@ -377,7 +377,7 @@ class Connector:
         """Bring up the link and return the receiver's IP address on it."""
         try:
             return self._lt.run(self._connect(peer), timeout=timeout)
-        except TimeoutError as e:  # concurrent.futures.TimeoutError is this since 3.11
+        except FutureTimeout as e:  # a separate class on Python 3.10
             raise WifiDirectError(
                 f"The Wi-Fi Direct link to {peer.name} did not come up within {int(timeout)} s. "
                 "Move the PCs closer, accept any pairing prompt, and try again.") from e

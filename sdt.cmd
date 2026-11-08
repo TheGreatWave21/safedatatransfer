@@ -19,7 +19,7 @@ if %errorlevel%==0 (
 if not exist "%PY%" goto :nopython
 
 :check
-"%PY%" -I -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>nul
+"%PY%" -I -c "import sys; sys.exit(sys.version_info < (3, 11))" >nul 2>nul
 if errorlevel 1 goto :oldpython
 "%PY%" -I -c "import importlib.util as u, sys; sys.exit(any(u.find_spec(m) is None for m in ('safedatatransfer', 'textual', 'cryptography', 'spake2')))" >nul 2>nul
 if %errorlevel%==0 goto :run
@@ -37,11 +37,11 @@ if errorlevel 1 (
 exit /b %errorlevel%
 
 :oldpython
-echo [sdt] .venv was made with a Python older than 3.10. Install a newer Python, delete
+echo [sdt] .venv was made with a Python older than 3.11. Install a newer Python, delete
 echo       the .venv folder, and start sdt again.
 exit /b 1
 
 :nopython
-echo [sdt] Python 3.10 or newer is needed and was not found.
+echo [sdt] Python 3.11 or newer is needed and was not found.
 echo       Install it from https://www.python.org/downloads/  or run:  winget install Python.Python.3.13
 exit /b 1
