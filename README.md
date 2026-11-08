@@ -10,7 +10,7 @@
   <a href="https://github.com/TheGreatWave21/safedatatransfer/releases/latest"><img src="https://img.shields.io/github/v/release/TheGreatWave21/safedatatransfer" alt="Release"></a>
   <img src="https://img.shields.io/pypi/pyversions/safedatatransfer" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6" alt="Windows">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/TheGreatWave21/safedatatransfer" alt="License: MIT"></a>
+  <a href="https://github.com/TheGreatWave21/safedatatransfer/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TheGreatWave21/safedatatransfer" alt="License: MIT"></a>
 </p>
 
 ```powershell
@@ -101,7 +101,7 @@ sdt drop receive          # on the receiving PC: shows a name like sdt-4821 and 
 sdt drop send file.pdf    # on the sending PC: finds it, asks for the code
 ```
 
-Both PCs only need Wi-Fi switched **on**; they don't need to be on the same network. See [docs/local-drop.md](docs/local-drop.md) for the security design and first-run notes.
+Both PCs only need Wi-Fi switched **on**; they don't need to be on the same network. See [docs/local-drop.md](https://github.com/TheGreatWave21/safedatatransfer/blob/main/docs/local-drop.md) for the security design and first-run notes.
 
 ### Interactive UI
 
@@ -188,7 +188,7 @@ Blob sizes still roughly reveal file sizes. An interrupted copy shows up as `INC
 - **Received files** get the "Mark of the Web", like browser downloads.
 - **Pairing:** Wi-Fi Direct pairings made for a transfer are removed afterwards.
 
-Full details: [docs/local-drop.md](docs/local-drop.md).
+Full details: [docs/local-drop.md](https://github.com/TheGreatWave21/safedatatransfer/blob/main/docs/local-drop.md).
 </details>
 
 ## Limitation of wiping
@@ -219,4 +219,4 @@ The USB vault is tested on real sticks and `subst` drives. Local drop's protocol
 
 ## License
 
-[MIT](LICENSE). Use at your own risk, and read [Limitation of wiping](#limitation-of-wiping) before trusting any wipe with secret data.
+[MIT](https://github.com/TheGreatWave21/safedatatransfer/blob/main/LICENSE). Use at your own risk, and read [Limitation of wiping](#limitation-of-wiping) before trusting any wipe with secret data.
