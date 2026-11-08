@@ -8,6 +8,7 @@
 <p align="center">
   <a href="https://pypi.org/p/safedatatransfer"><img src="https://img.shields.io/pypi/v/safedatatransfer" alt="PyPI"></a>
   <a href="https://github.com/TheGreatWave21/safedatatransfer/releases/latest"><img src="https://img.shields.io/github/v/release/TheGreatWave21/safedatatransfer" alt="Release"></a>
+  <a href="https://github.com/TheGreatWave21/safedatatransfer/actions/workflows/tests.yml"><img src="https://github.com/TheGreatWave21/safedatatransfer/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
   <img src="https://img.shields.io/pypi/pyversions/safedatatransfer" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6" alt="Windows">
   <a href="https://github.com/TheGreatWave21/safedatatransfer/blob/main/LICENSE"><img src="https://img.shields.io/github/license/TheGreatWave21/safedatatransfer" alt="License: MIT"></a>
@@ -207,7 +208,7 @@ USB flash drives move data around internally (wear levelling) and keep spare blo
 
 ## Status
 
-The USB vault is tested on real sticks and `subst` drives. Local drop's protocol is covered by automated tests. A real PC-to-PC Wi-Fi Direct transfer still needs testing with two PCs. Feedback and issues are welcome.
+The USB vault is tested on real sticks and `subst` drives. Local drop's protocol is covered by automated tests. A real PC-to-PC Wi-Fi Direct transfer still needs testing with two PCs. Feedback and issues are welcome. Found a security problem? Please report it privately, see [SECURITY.md](https://github.com/TheGreatWave21/safedatatransfer/blob/main/SECURITY.md).
 
 <details>
 <summary>Project layout and tests</summary>

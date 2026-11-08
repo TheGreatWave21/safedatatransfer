@@ -6,7 +6,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "safedatatransfer"
-version = "0.1.1"
+# The version lives only in src/safedatatransfer/__init__.py (__version__).
+dynamic = ["version"]
 description = "Encrypted USB evacuation (copy, verify, wipe) and an AirDrop-style secure file drop for Windows."
 readme = "README.md"
 license = "MIT"
@@ -40,6 +41,9 @@ Issues = "https://github.com/TheGreatWave21/safedatatransfer/issues"
 
 [project.scripts]
 sdt = "safedatatransfer.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "safedatatransfer.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
