@@ -30,6 +30,22 @@ Dependencies (inside `.venv` only): `cryptography`, `spake2`, `textual` (UI), an
 `constraints.txt` (and a pinned build tool in `pyproject.toml`), and only prebuilt wheels, so a new (possibly compromised) release is
 never pulled in silently and no third-party build scripts run.
 
+### Install from a release (alternative)
+
+Each [GitHub release](https://github.com/TheGreatWave21/safedatatransfer/releases) has a
+wheel (`.whl`) with its SHA-256 in the release notes. Check it, then install it into a
+virtual environment of your own (not system-wide):
+
+```powershell
+Get-FileHash .\safedatatransfer-0.1.0-py3-none-any.whl     # compare with the release notes
+py -m venv $HOME\sdt-env
+& $HOME\sdt-env\Scripts\python -I -m pip install --only-binary=:all: .\safedatatransfer-0.1.0-py3-none-any.whl
+& $HOME\sdt-env\Scripts\sdt --version
+```
+
+With `pip`, dependencies are resolved by version range; `sdt.cmd` with `constraints.txt` is
+the stricter, pinned way.
+
 ## Interactive UI
 
 Run `sdt` with no arguments. Everything is keyboard-driven, and the mouse works too.

@@ -12,6 +12,15 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
+keywords = ["usb", "wipe", "encryption", "vault", "wifi-direct", "file-transfer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security :: Cryptography",
+    "Topic :: System :: Archiving :: Backup",
+]
 dependencies = [
     "cryptography>=44",
     "spake2>=0.9",
@@ -24,6 +33,10 @@ dependencies = [
     "winrt-Windows.Foundation.Collections>=3; sys_platform == 'win32'",
     "winrt-Windows.Storage.Streams>=3; sys_platform == 'win32'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/TheGreatWave21/safedatatransfer"
+Issues = "https://github.com/TheGreatWave21/safedatatransfer/issues"
 
 [project.scripts]
 sdt = "safedatatransfer.cli:main"
