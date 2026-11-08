@@ -1,0 +1,65 @@
+# Builds the standalone sdt.exe on a clean Windows runner and attaches it to the release.
+#  - Publishing a GitHub release          -> exe for that release
+#  - "Run workflow" button (Actions tab)   -> exe for the tag you enter (e.g. v0.1.1)
+# Every action is pinned to an exact commit; dependencies come from constraints.txt.
+name: exe
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and attach to (e.g. v0.1.1)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-exe:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # only to attach the exe to the release
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+      - name: Install pinned dependencies and PyInstaller
+        run: python -I -m pip install --only-binary=:all: -c constraints.txt . "pyinstaller==6.22.2"
+      # To build locally: same two steps inside .venv (the exe then contains your local paths,
+      # so publish only exes built here).
+      - name: Build sdt.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          "from safedatatransfer.cli import main`nraise SystemExit(main())" | Set-Content -Encoding utf8 build\sdt_entry.py
+          python -I -m PyInstaller --noconfirm --clean --onefile --console --name sdt `
+            --collect-submodules safedatatransfer `
+            --collect-submodules textual --collect-data textual `
+            --collect-submodules winrt `
+            --distpath dist-exe --workpath build\pyinstaller --specpath build `
+            build\sdt_entry.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $v = & dist-exe\sdt.exe --version
+          if ($v -ne "sdt $($env:TAG.TrimStart('v'))") { throw "unexpected version: $v" }
+          & dist-exe\sdt.exe usb list --all
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash dist-exe\sdt.exe -Algorithm SHA256).Hash
+          "$h  sdt.exe" | Set-Content -Encoding ascii dist-exe\sdt.exe.sha256
+          Get-Content dist-exe\sdt.exe.sha256
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$env:TAG" dist-exe\sdt.exe dist-exe\sdt.exe.sha256 --clobber --repo "${{ github.repository }}"

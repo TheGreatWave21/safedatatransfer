@@ -38,7 +38,14 @@ What makes it different:
 
 ## Install
 
-You need **Python 3.10+** (`winget install Python.Python.3.13`).
+**No Python? Use the exe:** download `sdt.exe` from the [latest release](https://github.com/TheGreatWave21/safedatatransfer/releases/latest), check it against `sdt.exe.sha256`, and run it. It's built by GitHub Actions from the tagged source. It isn't code-signed yet, so Windows SmartScreen may warn the first time (**More info → Run anyway**).
+
+```powershell
+Get-FileHash .\sdt.exe     # compare with sdt.exe.sha256
+.\sdt.exe
+```
+
+The other ways need **Python 3.10+** (`winget install Python.Python.3.13`).
 
 **With pipx** (recommended: it gets its own private environment):
 

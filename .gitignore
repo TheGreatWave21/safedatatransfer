@@ -6,3 +6,5 @@ dist/
 .venv/
 venv/
 .pytest_cache/
+dist-exe/
+*.spec
