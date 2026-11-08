@@ -65,6 +65,11 @@ def _ts(t: float) -> str:
         return "-"
 
 
+def _err(e: BaseException) -> str:
+    """Error text for the user; some errors (e.g. timeouts) have an empty message."""
+    return str(e) or type(e).__name__
+
+
 def _path_size(p: Path, limit: int = 20000) -> int:
     """Size of a file, or of a folder's files (links not followed; stops counting after
     `limit` files so a huge folder doesn't freeze the UI)."""
@@ -226,7 +231,9 @@ class SdtApp(App):
         self._last_input = time.monotonic()
 
     def _auto_lock(self) -> None:
-        if self.unlocked and not self.busy and \
+        # A local drop can wait for a sender for a long time; locking only forgets the
+        # file list, so it is safe (and wanted) while a drop is running.
+        if self.unlocked and (not self.busy or self.drop_running) and \
                 time.monotonic() - self._last_input > self.AUTO_LOCK_SECONDS:
             self.action_lock()
             self.log_line("vaults locked automatically after 10 minutes without input")
@@ -735,7 +742,7 @@ class SdtApp(App):
                 lambda log, prog: vault.open_vault(v, out, pw, log=log, progress=prog))
         except (vault.VaultError, OSError) as e:
             self.notify(str(e), title="Open failed", severity="error")
-            self._end(f"[red]open failed:[/red] {escape(str(e))}")
+            self._end(f"[red]open failed:[/red] {escape(_err(e))}")
             return
         if errors:
             self._end(f"[red]{len(errors)} files failed to decrypt/verify[/red]")
@@ -855,7 +862,7 @@ class SdtApp(App):
                     Path(drive.root), plan.dest, pw, source_label=drive.label, dry_run=dry,
                     log=log, progress=prog))
             except (OSError, ValueError, vault.VaultError) as e:
-                self._end(f"[red]copy failed:[/red] {escape(str(e))}")
+                self._end(f"[red]copy failed:[/red] {escape(_err(e))}")
                 self.notify(str(e), title="Copy failed", severity="error")
                 return
             summary = f"{len(result.files):,} files, {human_size(result.total_bytes)}"
@@ -990,7 +997,9 @@ class SdtApp(App):
 
         def log(msg: str) -> None:
             self.call_from_thread(self.log_line, escape(msg))
-            self.call_from_thread(self._drop_status, msg.strip())
+            first = msg.strip().splitlines()
+            if first:
+                self.call_from_thread(self._drop_status, first[0])
 
         def prog(done: int, total: int) -> None:
             now = time.monotonic()
@@ -1073,7 +1082,7 @@ class SdtApp(App):
             self.call_from_thread(self._drop_finished, f"[yellow]{escape(str(e))}[/yellow]", False)
         except Exception as e:  # shown to the user, never a crash
             self.call_from_thread(self._drop_finished,
-                                  f"[red]sending failed:[/red] {escape(str(e))}", False)
+                                  f"[red]sending failed:[/red] {escape(_err(e))}", False)
 
     def action_drop_receive(self) -> None:
         self.action_tab("drop")
@@ -1085,6 +1094,10 @@ class SdtApp(App):
         dest = await self.push_screen_wait(PathModal(
             "RECEIVE FILES", "Save received files in this folder:", str(drop.DEFAULT_DEST)))
         if dest is None or not self._can_drop():
+            return
+        dest = dest.resolve()
+        if dest.exists() and not dest.is_dir():
+            self.notify(f"{dest} is a file, not a folder.", severity="error")
             return
         try:
             drop.check_receive_dest(dest, allow_cloud=False)
@@ -1107,7 +1120,7 @@ class SdtApp(App):
             self.call_from_thread(self._drop_finished, f"[yellow]{escape(str(e))}[/yellow]", False)
         except Exception as e:  # shown to the user, never a crash
             self.call_from_thread(self._drop_finished,
-                                  f"[red]receiving failed:[/red] {escape(str(e))}", False)
+                                  f"[red]receiving failed:[/red] {escape(_err(e))}", False)
 
     def action_drop_stop(self) -> None:
         if not self.drop_running:

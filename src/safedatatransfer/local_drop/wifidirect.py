@@ -130,6 +130,9 @@ class _LoopThread:
 
     def close(self) -> None:
         self.loop.call_soon_threadsafe(self.loop.stop)
+        self._thread.join(5)
+        if not self._thread.is_alive():
+            self.loop.close()
 
 
 # ---------------------------------------------------------------- pairing
@@ -197,9 +200,20 @@ class Advertiser:
         self._token = None
         self._linked = False
         self._paired_here: list[Any] = []
+        self._stopped = False
 
     def start(self) -> "Advertiser":
-        self._lt.run(self._start(), timeout=15)
+        """Start advertising. On any failure everything is stopped again, so this PC is
+        never left visible nearby."""
+        try:
+            self._lt.run(self._start(), timeout=15)
+        except TimeoutError as e:
+            self.stop()
+            raise WifiDirectError("Wi-Fi Direct advertising did not start within 15 s. "
+                                  "Is Wi-Fi turned on?") from e
+        except BaseException:
+            self.stop()
+            raise
         return self
 
     async def _start(self) -> None:
@@ -263,16 +277,24 @@ class Advertiser:
             self.log(f"  Wi-Fi Direct: could not accept link: {e}")
 
     def stop(self) -> None:
-        try:
-            if self._publisher is not None:
-                self._publisher.stop()
-            if self._listener is not None and self._token is not None:
-                self._listener.remove_connection_requested(self._token)
-            for d in self._devices:
-                d.close()
-        finally:
-            _forget(self._lt, self._paired_here)
-            self._lt.close()
+        """Stop advertising, drop the link, remove pairings made here. Each step is
+        best effort, so one failure doesn't leave the others undone. Safe to call twice."""
+        if self._stopped:
+            return
+        self._stopped = True
+        steps = []
+        if self._publisher is not None:
+            steps.append(self._publisher.stop)
+        if self._listener is not None and self._token is not None:
+            steps.append(lambda: self._listener.remove_connection_requested(self._token))
+        steps += [d.close for d in self._devices]
+        for step in steps:
+            try:
+                step()
+            except Exception:
+                pass
+        _forget(self._lt, self._paired_here)
+        self._lt.close()
 
 
 # ---------------------------------------------------------------- sender side
@@ -353,7 +375,12 @@ class Connector:
 
     def connect(self, peer: WfdPeer, timeout: float = 60.0) -> str:
         """Bring up the link and return the receiver's IP address on it."""
-        return self._lt.run(self._connect(peer), timeout=timeout)
+        try:
+            return self._lt.run(self._connect(peer), timeout=timeout)
+        except TimeoutError as e:  # concurrent.futures.TimeoutError is this since 3.11
+            raise WifiDirectError(
+                f"The Wi-Fi Direct link to {peer.name} did not come up within {int(timeout)} s. "
+                "Move the PCs closer, accept any pairing prompt, and try again.") from e
 
     async def _connect(self, peer: WfdPeer) -> str:
         info = await DeviceInformation.create_from_id_async(peer.device_id)

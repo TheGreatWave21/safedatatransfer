@@ -27,7 +27,7 @@ VIA = ("wifi-direct", "lan")
 ACCEPT_TIMEOUT = 120  # seconds the port stays open after the link is up
 
 FIREWALL_NOTE = (
-    "Windows may ask once whether Python may accept connections. Allowing it is safe here:\n"
+    "Windows may ask once whether sdt (or Python) may accept connections. Allowing it is safe here:\n"
     "the port only exists while you receive, and only on the direct link to the other PC."
 )
 
@@ -52,6 +52,15 @@ class Hooks:
     def check(self) -> None:
         if self.cancelled():
             raise Cancelled()
+
+    def checked_progress(self) -> Callable[[int, int], None]:
+        """Progress callback that also stops a running transfer when the user presses Stop
+        (the protocol then removes the partial file)."""
+        def progress(done: int, total: int) -> None:
+            self.check()
+            if self.progress:
+                self.progress(done, total)
+        return progress
 
 
 @dataclass
@@ -203,7 +212,7 @@ def send(paths: list[Path], to: str | None, via: str, host: str | None, code: st
                 raise Cancelled()
             ch = protocol.handshake_sender(sock, code)
             log("Secure channel established (code verified).")
-            protocol.send_files(ch, files, _this_pc(), log, hooks.progress)
+            protocol.send_files(ch, files, _this_pc(), log, hooks.checked_progress())
         log("Done.")
         return len(files)
     finally:
@@ -299,6 +308,7 @@ def receive(dest: Path | None, via: str, allow_cloud: bool, name: str | None,
     if via == "lan":
         log("WARNING: --via lan listens on your normal network. Use it only on a network you trust.")
         responder = lan.DiscoveryResponder(name, protocol.TCP_PORT).start()
+        server = None
         try:
             server = socket.create_server(("0.0.0.0", protocol.TCP_PORT))
             log(f"Receiving as '{name}' on the local network. Files go to {dest}")
@@ -308,13 +318,15 @@ def receive(dest: Path | None, via: str, allow_cloud: bool, name: str | None,
             conn = _accept_one(server, None, log, hooks.cancelled)
         finally:
             responder.stop()
+            if server is not None:
+                server.close()  # already closed by _accept_one, unless something failed before
         return _receive_on(conn, code, dest, hooks)
 
     links: "queue.Queue[tuple[str, str]]" = queue.Queue()
     advertiser = wifidirect.Advertiser(name, log=log,
                                        on_link=lambda local, remote: links.put((local, remote)))
-    advertiser.start()
     try:
+        advertiser.start()  # stops itself again if it fails
         log(f"Visible as '{name}' over Wi-Fi Direct. Files go to {dest}")
         if hooks.on_ready:
             hooks.on_ready(name, code, dest)
@@ -333,8 +345,15 @@ def _receive_on(conn: socket.socket, code: str, dest: Path, hooks: Hooks) -> lis
         conn.settimeout(120)
         ch = protocol.handshake_receiver(conn, code)
         hooks.log("Code verified, secure channel established.")
-        received = protocol.receive_files(ch, dest, hooks.ask_accept or _ask_accept, hooks.log,
-                                          progress=hooks.progress)
+        ask = hooks.ask_accept or _ask_accept
+
+        def accept(offer: dict) -> bool:
+            ok = ask(offer)
+            hooks.check()  # Stop pressed while the question was open: stopped, not declined
+            return ok
+
+        received = protocol.receive_files(ch, dest, accept, hooks.log,
+                                          progress=hooks.checked_progress())
     hooks.log(f"Received {len(received)} files into {dest}")
     return received
 

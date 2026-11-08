@@ -34,9 +34,11 @@ jobs:
           python -I -m build
       - name: Check the version matches the release tag
         if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}  # via env, never pasted into the script
         run: |
           whl=$(ls dist/*.whl); v=$(basename "$whl" | cut -d- -f2)
-          test "v$v" = "${{ github.event.release.tag_name }}" || { echo "package version v$v != tag ${{ github.event.release.tag_name }}"; exit 1; }
+          test "v$v" = "$TAG" || { echo "package version v$v != tag $TAG"; exit 1; }
       - run: sha256sum dist/*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

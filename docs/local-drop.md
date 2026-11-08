@@ -72,6 +72,10 @@ sdt drop send x.zip --host 192.168.1.20   # skip discovery
 sdt drop peers                   # just list receivers
 ```
 
+In the UI (`sdt` without arguments) the same is on tab **4**: `g` receive, `f` add files,
+`s` send, `k` stop. Stop works at any point. A file that was only partly received is
+deleted.
+
 ## First-run notes
 
 - **Windows Firewall** may ask once, on the receiver, the first time a link comes up.
