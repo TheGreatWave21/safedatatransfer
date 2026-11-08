@@ -8,6 +8,7 @@ import os
 import stat
 import time
 from collections import Counter
+from concurrent.futures import Future, TimeoutError as FutureTimeout
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
@@ -33,9 +34,11 @@ from safedatatransfer.common.drives import (
     Drive, DriveError, drive_details, human_size, list_drives,
 )
 from safedatatransfer.common.hashing import CHUNK_SIZE
+from safedatatransfer.local_drop import commands as drop
 from safedatatransfer.tui import visuals
 from safedatatransfer.tui.modals import (
-    METHOD_INFO, ConfirmWipeModal, HelpModal, PasswordModal, PathModal, PlanModal,
+    METHOD_INFO, AcceptModal, CodeModal, ConfirmWipeModal, HelpModal, PasswordModal, PathModal,
+    PeerModal, PlanModal,
 )
 from safedatatransfer.usb_vault import vault
 from safedatatransfer.usb_vault.commands import (
@@ -60,6 +63,27 @@ def _ts(t: float) -> str:
         return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
     except (OSError, OverflowError, ValueError):
         return "-"
+
+
+def _path_size(p: Path, limit: int = 20000) -> int:
+    """Size of a file, or of a folder's files (links not followed; stops counting after
+    `limit` files so a huge folder doesn't freeze the UI)."""
+    try:
+        if p.is_file():
+            return p.stat().st_size
+        total = 0
+        for i, (root, dirs, files) in enumerate(os.walk(p, followlinks=False)):
+            dirs[:] = [d for d in dirs if not is_link(Path(root, d))]  # incl. junctions
+            for f in files:
+                try:
+                    total += os.stat(os.path.join(root, f), follow_symlinks=False).st_size
+                except OSError:
+                    pass
+            if i > limit:
+                break
+        return total
+    except OSError:
+        return 0
 
 
 def _kv_table(rows: Iterable[tuple[str, str | Text]], key_style: str = "bold cyan") -> Table:
@@ -112,6 +136,14 @@ class SdtApp(App):
     #progress-label { width: 1fr; }
     #progress { width: 60; }
     #log { height: 1fr; border: round $primary 60%; background: $surface; }
+    #drop-send { width: 55%; }
+    #send-list { height: 1fr; border: round $primary 60%; background: $surface; }
+    #send-list:focus { border: round $accent; }
+    #send-hint, #recv-hint { height: auto; padding: 0 1; color: $text-muted; }
+    #recv-info { height: 1fr; }
+    #drop-foot { height: 3; padding: 0 1; border: round $primary 60%; }
+    #drop-status { width: 1fr; }
+    #drop-progress { width: 50; }
 
     /* dialogs */
     ModalScreen { align: center middle; background: $background 70%; }
@@ -135,6 +167,7 @@ class SdtApp(App):
         Binding("1", "tab('drives')", "Drives"),
         Binding("2", "tab('vaults')", "Vaults"),
         Binding("3", "tab('activity')", "Activity"),
+        Binding("4", "tab('drop')", "Drop"),
         Binding("c", "copy", "Copy"),
         Binding("e", "evacuate", "Evacuate"),
         Binding("w", "wipe", "Wipe"),
@@ -149,6 +182,11 @@ class SdtApp(App):
         Binding("l", "lock", "Lock", show=False),
         Binding("p", "add_vault", "Add vault", show=False),
         Binding("b", "toggle_banner", "Banner", show=False),
+        Binding("f", "drop_add", "Add file", show=False),
+        Binding("x", "drop_clear", "Clear list", show=False),
+        Binding("s", "drop_send", "Send", show=False),
+        Binding("g", "drop_receive", "Receive", show=False),
+        Binding("k", "drop_stop", "Stop", show=False),
     ]
 
     dry_run: reactive[bool] = reactive(False)
@@ -174,6 +212,8 @@ class SdtApp(App):
         self._last_drive_sig: tuple = ()
         self._progress_t = 0.0
         self._last_input = time.monotonic()
+        self.send_paths: list[Path] = []
+        self.drop_running = ""
 
     # ------------------------------------------------------------ privacy
 
@@ -237,6 +277,17 @@ class SdtApp(App):
                     yield Static("idle", id="progress-label")
                     yield ProgressBar(id="progress", show_eta=True)
                 yield RichLog(id="log", markup=True, wrap=True, max_lines=5000)
+            with TabPane("④ Drop", id="drop"):
+                with Horizontal():
+                    with Vertical(id="drop-send"):
+                        yield DataTable(id="send-list", cursor_type="row", zebra_stripes=True)
+                        yield Static(id="send-hint")
+                    with Vertical(id="drop-recv", classes="panel"):
+                        yield Static(id="recv-info")
+                        yield Static(id="recv-hint")
+                with Horizontal(id="drop-foot"):
+                    yield Static("idle", id="drop-status")
+                    yield ProgressBar(id="drop-progress", show_eta=True)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -251,6 +302,12 @@ class SdtApp(App):
         self.query_one("#vault-summary").border_title = "CONTENTS"
         self.query_one("#vault-files").border_title = "FILES IN VAULT"
         self.query_one("#log").border_title = "LOG"
+        self.query_one("#send-list").border_title = "SEND  (f add · x clear · s send)"
+        self.query_one("#drop-recv").border_title = "RECEIVE  (g start · k stop)"
+        sl = self.query_one("#send-list", DataTable)
+        sl.add_columns("File or folder", "Size")
+        self._render_send_list()
+        self._render_receive_idle()
         dt = self.query_one("#drive-table", DataTable)
         dt.add_columns(" ", "Drive", "Label", "Size", "FS", "Used")
         vt = self.query_one("#vault-table", DataTable)
@@ -850,11 +907,220 @@ class SdtApp(App):
         self._last_drive_sig = ()
         self.poll_drives()
 
+    # ------------------------------------------------------------ local drop
+
+    def _render_send_list(self) -> None:
+        table = self.query_one("#send-list", DataTable)
+        table.clear()
+        total = 0
+        for p in self.send_paths:
+            size = _path_size(p)
+            total += size
+            table.add_row(Text(str(p)), Text(human_size(size) + ("" if p.is_file() else "  (folder)")))
+        hint = self.query_one("#send-hint", Static)
+        if not self.send_paths:
+            hint.update("Press [b]f[/b] to add a file or folder. You can drag it from Explorer "
+                        "into the box. Then press [b]s[/b] to send.")
+        else:
+            hint.update(f"{len(self.send_paths)} item(s), {human_size(total)}. Press [b]s[/b] to "
+                        "send. The other PC must be receiving (tab 4, key [b]g[/b]).")
+
+    def _render_receive_idle(self) -> None:
+        self.query_one("#recv-info", Static).update(Text.from_markup(
+            "\n[b]Not receiving.[/b]\n\nPress [b]g[/b] to receive files from another PC.\n"
+            "This PC then shows a name and a 6-digit code.\n\n"
+            "[dim]No port is opened until the other PC connects over Wi-Fi Direct,\n"
+            "and only that PC can connect, once.[/dim]"))
+        self.query_one("#recv-hint", Static).update(
+            f"[dim]Files are saved to {escape(str(drop.DEFAULT_DEST))} unless you choose "
+            "another folder.[/dim]")
+
+    def _show_code(self, name: str, code: str, dest: Path) -> None:
+        t = Text()
+        t.append("\nVisible as\n", style="dim")
+        t.append(f"  {name}\n\n", style="bold cyan")
+        t.append("Code\n", style="dim")
+        t.append(f"  {code}  \n\n", style="bold black on yellow")
+        t.append("Tell the sender this code in person.\n", style="bold")
+        t.append("Never read it out over the phone or send it in a chat.\n\n", style="dim")
+        t.append(f"Saving to {dest}\n", style="dim")
+        t.append("Press k to stop.", style="dim")
+        self.query_one("#recv-info", Static).update(t)
+        self.query_one("#recv-hint", Static).update("[yellow]● waiting for a sender…[/yellow]")
+
+    def _drop_status(self, msg: str) -> None:
+        self.query_one("#drop-status", Static).update(Text(msg[:200]))
+
+    def _drop_progress(self, done: int, total: int) -> None:
+        self.query_one("#drop-progress", ProgressBar).update(total=max(total, 1), progress=done)
+
+    def _drop_finished(self, msg: str, ok: bool) -> None:
+        self.drop_running = ""
+        self.busy = ""
+        self.log_line(msg)
+        self.query_one("#drop-status", Static).update(Text.from_markup(f"■ {msg}"))
+        self._render_receive_idle()
+        if ok:
+            self.notify(Text.from_markup(msg).plain, title="Local drop")
+        elif "stopped" in msg or "declined" in msg:
+            self.notify(Text.from_markup(msg).plain, title="Local drop", severity="warning")
+        else:
+            self.notify(Text.from_markup(msg).plain, title="Local drop", severity="error", timeout=12)
+
+    def _ask(self, screen: ModalScreen, cancelled: Callable[[], bool]):
+        """Show a dialog from the transfer thread and wait for the answer.
+        Returns None if the transfer is stopped while the dialog is open."""
+        fut: Future = Future()
+        self.call_from_thread(self.push_screen, screen, fut.set_result)
+        while True:
+            try:
+                return fut.result(timeout=0.5)
+            except FutureTimeout:
+                if cancelled():
+                    try:
+                        self.call_from_thread(screen.dismiss, None)
+                    except Exception:
+                        pass  # already closed
+                    return None
+
+    def _drop_hooks(self, dest: Path | None = None) -> drop.Hooks:
+        worker = get_current_worker()
+        cancelled = lambda: worker.is_cancelled  # noqa: E731
+        last = [0.0]
+
+        def log(msg: str) -> None:
+            self.call_from_thread(self.log_line, escape(msg))
+            self.call_from_thread(self._drop_status, msg.strip())
+
+        def prog(done: int, total: int) -> None:
+            now = time.monotonic()
+            if done >= total or now - last[0] > 0.1:
+                last[0] = now
+                self.call_from_thread(self._drop_progress, done, total)
+
+        return drop.Hooks(
+            log=log, progress=prog, cancelled=cancelled,
+            ask_code=lambda: self._ask(CodeModal(), cancelled),
+            choose=lambda peers: self._ask(PeerModal(peers), cancelled),
+            ask_accept=lambda offer: bool(self._ask(AcceptModal(offer, dest or drop.DEFAULT_DEST),
+                                                    cancelled)),
+            on_ready=lambda name, code, d: self.call_from_thread(self._show_code, name, code, d),
+        )
+
+    def _can_drop(self) -> bool:
+        if self.busy:
+            self.notify(f"Busy: {self.busy}", severity="warning")
+            return False
+        if self.dry_run:
+            self.notify("DRY-RUN is on. Press d to switch to LIVE mode to send or receive.",
+                        severity="warning")
+            return False
+        return True
+
+    def _drop_begin(self, what: str) -> None:
+        self.drop_running = what
+        self.busy = what
+        self._drop_progress(0, 1)
+        self.query_one("#drop-status", Static).update(Text(f"▶ {what}", style="bold yellow"))
+        self.log_line(f"[b yellow]▶ {escape(what)}[/b yellow]")
+
+    def action_drop_add(self) -> None:
+        self.action_tab("drop")
+        self._drop_add()
+
+    @work(exclusive=True, group="ui")
+    async def _drop_add(self) -> None:
+        p = await self.push_screen_wait(PathModal(
+            "ADD TO SEND LIST", "File or folder to send (type a path, or drag it from Explorer here):"))
+        if p is None:
+            return
+        if not p.exists():
+            self.notify(f"Not found: {p}", severity="error")
+            return
+        if is_link(p):
+            self.notify("That is a link/junction. Add the real file or folder instead.",
+                        severity="error")
+            return
+        p = p.resolve()
+        if p not in self.send_paths:
+            self.send_paths.append(p)
+        self._render_send_list()
+
+    def action_drop_clear(self) -> None:
+        if self.drop_running:
+            self.notify("Stop the transfer first (k).", severity="warning")
+            return
+        self.send_paths.clear()
+        self._render_send_list()
+
+    def action_drop_send(self) -> None:
+        self.action_tab("drop")
+        if not self.send_paths:
+            self.notify("Add files first (f).", severity="warning")
+            return
+        if self._can_drop():
+            self._drop_begin(f"sending {len(self.send_paths)} item(s)")
+            self._drop_send(list(self.send_paths))
+
+    @work(thread=True, exclusive=True, group="drop", exit_on_error=False)
+    def _drop_send(self, paths: list[Path]) -> None:
+        try:
+            n = drop.send(paths, None, "wifi-direct", None, None, self._drop_hooks())
+            self.call_from_thread(self._drop_finished, f"[green]✔ sent {n} file(s)[/green]", True)
+        except drop.Cancelled:
+            self.call_from_thread(self._drop_finished, "sending stopped", False)
+        except drop.protocol.Rejected as e:
+            self.call_from_thread(self._drop_finished, f"[yellow]{escape(str(e))}[/yellow]", False)
+        except Exception as e:  # shown to the user, never a crash
+            self.call_from_thread(self._drop_finished,
+                                  f"[red]sending failed:[/red] {escape(str(e))}", False)
+
+    def action_drop_receive(self) -> None:
+        self.action_tab("drop")
+        if self._can_drop():
+            self._drop_receive_start()
+
+    @work(exclusive=True, group="ui")
+    async def _drop_receive_start(self) -> None:
+        dest = await self.push_screen_wait(PathModal(
+            "RECEIVE FILES", "Save received files in this folder:", str(drop.DEFAULT_DEST)))
+        if dest is None or not self._can_drop():
+            return
+        try:
+            drop.check_receive_dest(dest, allow_cloud=False)
+        except drop.protocol.ProtocolError as e:
+            self.notify(str(e), title="Refused", severity="error", timeout=12)
+            return
+        self._drop_begin("receiving")
+        self._drop_receive(dest)
+
+    @work(thread=True, exclusive=True, group="drop", exit_on_error=False)
+    def _drop_receive(self, dest: Path) -> None:
+        try:
+            got = drop.receive(dest, "wifi-direct", False, None, self._drop_hooks(dest))
+            self.call_from_thread(self._drop_finished,
+                                  f"[green]✔ received {len(got)} file(s)[/green] → {escape(str(dest))}",
+                                  True)
+        except drop.Cancelled:
+            self.call_from_thread(self._drop_finished, "receiving stopped", False)
+        except drop.protocol.Rejected as e:
+            self.call_from_thread(self._drop_finished, f"[yellow]{escape(str(e))}[/yellow]", False)
+        except Exception as e:  # shown to the user, never a crash
+            self.call_from_thread(self._drop_finished,
+                                  f"[red]receiving failed:[/red] {escape(str(e))}", False)
+
+    def action_drop_stop(self) -> None:
+        if not self.drop_running:
+            return
+        self.workers.cancel_group(self, "drop")
+        self.query_one("#drop-status", Static).update(Text("stopping…", style="yellow"))
+
     # ------------------------------------------------------------ misc actions
 
     _OWN_ACTIONS = {"tab", "copy", "evacuate", "wipe", "unlock", "open_vault", "toggle_dry_run",
                     "help", "quit", "hash_file", "toggle_all", "refresh", "lock", "add_vault",
-                    "toggle_banner"}
+                    "toggle_banner", "drop_add", "drop_clear", "drop_send", "drop_receive",
+                    "drop_stop"}
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         # While a dialog is open, its keys must never trigger app actions (e.g. q = quit).
@@ -862,7 +1128,8 @@ class SdtApp(App):
             return False
         return True
 
-    TAB_FOCUS = {"drives": "#drive-table", "vaults": "#vault-table", "activity": "#log"}
+    TAB_FOCUS = {"drives": "#drive-table", "vaults": "#vault-table", "activity": "#log",
+                 "drop": "#send-list"}
 
     def action_tab(self, name: str) -> None:
         # TabbedContent follows focus, so focus must move into the new tab too,

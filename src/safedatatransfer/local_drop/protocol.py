@@ -269,9 +269,11 @@ def _unique(path: Path) -> Path:
 # ---------------------------------------------------------------- send / receive
 
 Log = Callable[[str], None]
+Progress = Callable[[int, int], None]  # (bytes done, bytes total)
 
 
-def send_files(ch: SecureChannel, files: list[OutgoingFile], sender_name: str, log: Log = print) -> None:
+def send_files(ch: SecureChannel, files: list[OutgoingFile], sender_name: str, log: Log = print,
+               progress: Progress | None = None) -> None:
     ch.send_json({
         "type": "offer", "sender": sender_name,
         "files": [{"path": f.rel, "size": f.size} for f in files],
@@ -282,6 +284,8 @@ def send_files(ch: SecureChannel, files: list[OutgoingFile], sender_name: str, l
     if reply.get("type") != "accept":
         raise Rejected("The receiver declined.")
     ch.sock.settimeout(60)
+    total = sum(f.size for f in files)
+    done = 0
     for i, f in enumerate(files):
         ch.send_json({"type": "file", "index": i})
         h = hashlib.sha256()
@@ -291,6 +295,9 @@ def send_files(ch: SecureChannel, files: list[OutgoingFile], sender_name: str, l
                 h.update(chunk)
                 ch.send_data(chunk)
                 sent += len(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, total)
         if sent != f.size:
             raise ProtocolError(f"{f.rel} changed size while sending.")
         ch.send_json({"type": "file_end", "sha256": h.hexdigest()})
@@ -302,7 +309,7 @@ def send_files(ch: SecureChannel, files: list[OutgoingFile], sender_name: str, l
 
 def receive_files(
     ch: SecureChannel, dest: Path, accept: Callable[[dict], bool], log: Log = print,
-    max_total: int = 1 << 40,
+    max_total: int = 1 << 40, progress: Progress | None = None,
 ) -> list[Path]:
     offer = ch.recv_json("offer")
     files = offer.get("files")
@@ -334,6 +341,7 @@ def receive_files(
     dest.mkdir(parents=True, exist_ok=True)
     winfs.set_not_indexed(dest)
     received: list[Path] = []
+    done = 0
     for index, (rel, size) in enumerate(planned):
         start = ch.recv_json("file")
         if start.get("index") != index:
@@ -353,6 +361,9 @@ def receive_files(
                             raise ProtocolError(f"{rel} is larger than announced.")
                         h.update(body)
                         fout.write(body)
+                        done += len(body)
+                        if progress:
+                            progress(done, total)
                         continue
                     if kind != T_JSON:
                         raise ProtocolError("Unexpected message during file.")

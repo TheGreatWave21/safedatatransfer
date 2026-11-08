@@ -109,18 +109,21 @@ sdt drop receive          # on the receiving PC: shows a name like sdt-4821 and 
 sdt drop send file.pdf    # on the sending PC: finds it, asks for the code
 ```
 
-Both PCs only need Wi-Fi switched **on**; they don't need to be on the same network. See [docs/local-drop.md](https://github.com/TheGreatWave21/safedatatransfer/blob/main/docs/local-drop.md) for the security design and first-run notes.
+Both PCs only need Wi-Fi switched **on**; they don't need to be on the same network.
+You can also do this in the UI: tab **4**, then `g` to receive, or `f` and `s` to send. See [docs/local-drop.md](https://github.com/TheGreatWave21/safedatatransfer/blob/main/docs/local-drop.md) for the security design and first-run notes.
 
 ### Interactive UI
 
-Run `sdt` with no arguments. You can watch sticks appear when you plug them in, browse their files, unlock vaults, and follow progress live.
+Run `sdt` with no arguments. You can watch sticks appear when you plug them in, browse their files, unlock vaults, send files to another PC, and follow progress live.
 
 | Key | Action |
 |---|---|
-| `1` `2` `3` | Drives / Vaults / Activity tab |
+| `1` `2` `3` `4` | Drives / Vaults / Activity / Drop tab |
 | `c` / `e` / `w` | encrypted copy / evacuate (copy → verify → wipe) / wipe |
 | `u` / `o` / `l` / `p` | unlock a vault / open (decrypt) it / lock / add a vault from elsewhere |
 | `h` | SHA-256 of the selected file |
+| `f` / `x` / `s` | Drop: add a file or folder / clear the list / send |
+| `g` / `k` | Drop: receive (shows a name and a code) / stop |
 | `d` | DRY-RUN mode: simulate everything, write nothing |
 | `a` / `r` / `b` | show all drives / refresh / hide the banner |
 | `?` / `q` | help / quit |

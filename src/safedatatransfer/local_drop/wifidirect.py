@@ -288,19 +288,21 @@ class Connector:
 
     def scan(self, timeout: float = SCAN_TIMEOUT, settle: float = SCAN_SETTLE,
              done: Callable[[list[WfdPeer]], bool] | None = None,
-             on_wait: Callable[[int], None] | None = None) -> list[WfdPeer]:
+             on_wait: Callable[[int], None] | None = None,
+             cancelled: Callable[[], bool] | None = None) -> list[WfdPeer]:
         """Look for sdt receivers for up to `timeout` seconds.
 
         Stops early once `done(peers)` is true (default: at least one receiver found)
         and at least `settle` seconds have passed, so several nearby receivers can show
         up before the list is used. Wi-Fi Direct discovery is slow on some (older)
         adapters, so a short fixed scan misses receivers that are really there."""
-        return self._lt.run(self._scan(timeout, settle, done or bool, on_wait),
+        return self._lt.run(self._scan(timeout, settle, done or bool, on_wait, cancelled),
                             timeout=timeout + 30)
 
     async def _scan(self, timeout: float, settle: float,
                     done: Callable[[list[WfdPeer]], bool],
-                    on_wait: Callable[[int], None] | None) -> list[WfdPeer]:
+                    on_wait: Callable[[int], None] | None,
+                    cancelled: Callable[[], bool] | None = None) -> list[WfdPeer]:
         loop = asyncio.get_running_loop()
         selector = WiFiDirectDevice.get_device_selector(WiFiDirectDeviceSelectorType.ASSOCIATION_ENDPOINT)
         watcher = DeviceInformation.create_watcher(selector, [IE_PROPERTY])
@@ -329,7 +331,8 @@ class Connector:
                 await asyncio.sleep(0.5)
                 elapsed = loop.time() - start
                 peers = _named(found)
-                if (peers and elapsed >= settle and done(peers)) or elapsed >= timeout:
+                if (peers and elapsed >= settle and done(peers)) or elapsed >= timeout \
+                        or (cancelled and cancelled()):
                     break
                 if elapsed >= settle:
                     # Ask Windows directly for devices whose elements never arrived.

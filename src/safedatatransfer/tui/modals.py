@@ -12,7 +12,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, Static
+from textual.widgets import (
+    Button, Checkbox, Input, Label, OptionList, RadioButton, RadioSet, Static,
+)
 
 from safedatatransfer.common.crypto import MIN_PASSWORD_LEN, password_problem
 from safedatatransfer.common.drives import Drive, human_size
@@ -279,11 +281,133 @@ class PathModal(ModalScreen[Path | None]):
         self.dismiss(None)
 
 
+# ---------------------------------------------------------------- local drop
+
+class CodeModal(ModalScreen[str | None]):
+    """Sender: type the 6-digit code shown on the receiver."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, receiver: str = ""):
+        super().__init__()
+        self.receiver = receiver
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static(Text("ENTER THE CODE", style="bold"), classes="dialog-title")
+            yield Label("Type the 6-digit code that the receiving PC shows"
+                        + (f" ({self.receiver})" if self.receiver else "") + ":")
+            yield Input(placeholder="123-456", id="code", restrict=r"[0-9 -]*", max_length=9)
+            yield Static("Only someone who sees the receiver's screen knows this code. "
+                         "A wrong code stops the transfer.", classes="hint")
+            with Horizontal(classes="buttons"):
+                yield Button("Connect  ⏎", variant="primary", id="ok", disabled=True)
+                yield Button("Cancel  esc", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#code", Input).focus()
+
+    def _digits(self) -> str:
+        return "".join(c for c in self.query_one("#code", Input).value if c.isdigit())
+
+    @on(Input.Changed, "#code")
+    def _changed(self, _event: Input.Changed) -> None:
+        self.query_one("#ok", Button).disabled = len(self._digits()) != 6
+
+    @on(Input.Submitted, "#code")
+    @on(Button.Pressed, "#ok")
+    def _submit(self) -> None:
+        d = self._digits()
+        if len(d) == 6:
+            self.dismiss(f"{d[:3]}-{d[3:]}")
+
+    @on(Button.Pressed, "#cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class PeerModal(ModalScreen[object | None]):
+    """Sender: several receivers are nearby, pick one."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, peers: list):
+        super().__init__()
+        self.peers = peers
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static(Text("SEND TO WHICH PC?", style="bold"), classes="dialog-title")
+            yield Label("Several receivers are nearby. Pick the name the other PC shows:")
+            yield OptionList(*[p.label() for p in self.peers], id="peers")
+            with Horizontal(classes="buttons"):
+                yield Button("Cancel  esc", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#peers", OptionList).focus()
+
+    @on(OptionList.OptionSelected, "#peers")
+    def _picked(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(self.peers[event.option_index])
+
+    @on(Button.Pressed, "#cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class AcceptModal(ModalScreen[bool]):
+    """Receiver: someone wants to send these files. Decline is the default."""
+
+    BINDINGS = [Binding("escape", "decline", "Decline")]
+
+    def __init__(self, offer: dict, dest: Path):
+        super().__init__()
+        self.offer, self.dest = offer, dest
+
+    def compose(self) -> ComposeResult:
+        files = self.offer.get("files", [])
+        total = sum(int(f.get("size", 0)) for f in files)
+        with Vertical(id="dialog", classes="wide"):
+            yield Static(Text("INCOMING FILES", style="bold"), classes="dialog-title")
+            head = Table.grid(padding=(0, 2))
+            head.add_column(style="bold cyan", justify="right")
+            head.add_column()
+            head.add_row("From", Text(str(self.offer.get("sender", "?"))))
+            head.add_row("Files", f"{len(files):,}  ({human_size(total)})")
+            head.add_row("Save to", Text(str(self.dest)))
+            yield Static(head)
+            listing = Table(show_header=False, box=None, padding=(0, 2), expand=True)
+            listing.add_column(justify="right", style="dim", width=10)
+            listing.add_column(overflow="fold")
+            for f in files[:500]:
+                listing.add_row(human_size(int(f.get("size", 0))), Text(str(f.get("path"))))
+            if len(files) > 500:
+                listing.add_row("", f"... and {len(files) - 500:,} more")
+            with VerticalScroll():
+                yield Static(listing)
+            yield Static("Names are shown exactly as they will be saved. Existing files are "
+                         "never overwritten. Only accept files you expect.", classes="hint")
+            with Horizontal(classes="buttons"):
+                yield Button("Accept", variant="success", id="ok")
+                yield Button("Decline  esc", variant="error", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#cancel", Button).focus()  # Enter alone never accepts
+
+    @on(Button.Pressed, "#ok")
+    def _accept(self) -> None:
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#cancel")
+    def action_decline(self) -> None:
+        self.dismiss(False)
+
+
 # ---------------------------------------------------------------- help
 
 HELP_KEYS = [
     ("Navigation", [
-        ("1 / 2 / 3", "Drives / Vaults / Activity tab"),
+        ("1 / 2 / 3 / 4", "Drives / Vaults / Activity / Drop tab"),
         ("↑ ↓  ← →", "move in lists and the file tree (expand/collapse folders)"),
         ("tab / shift+tab", "move between panels"),
         ("enter", "open folder / choose"),
@@ -302,6 +426,13 @@ HELP_KEYS = [
         ("o", "open (decrypt) the selected vault into a folder"),
         ("l", "lock: forget the unlocked file list"),
         ("p", "add a vault from another folder"),
+    ]),
+    ("Local drop (tab 4)", [
+        ("f", "add a file or folder to send (you can drag it from Explorer)"),
+        ("x", "clear the send list"),
+        ("s", "send the list to another PC over Wi-Fi Direct"),
+        ("g", "receive: show a name and a code, wait for a sender"),
+        ("k", "stop sending / receiving"),
     ]),
     ("General", [
         ("d", "toggle DRY-RUN (simulate everything, write nothing)"),
