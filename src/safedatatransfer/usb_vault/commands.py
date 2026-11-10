@@ -151,7 +151,7 @@ def cmd_list(show_all: bool) -> int:
 
 
 def _encrypt_copy(drive: Drive, dest: Path, dry_run: bool):
-    password = "dry-run-password" if dry_run else ask_new_password()
+    password = vault.DRY_RUN_PASSWORD if dry_run else ask_new_password()
     print(f"Encrypting {drive.root} -> {dest}")
     result = vault.create_vault(Path(drive.root), dest, password,
                                 source_label=drive.label, dry_run=dry_run, log=safe_print)

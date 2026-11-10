@@ -94,6 +94,18 @@ class VaultTests(unittest.TestCase):
             vault.create_vault(src, dst, PW, dry_run=True, log=_quiet)
             self.assertFalse(dst.exists())
 
+    def test_dry_run_accepts_placeholder_password(self):
+        # The CLI and the UI pass this placeholder; the strength check rejected it once.
+        with tempfile.TemporaryDirectory() as t:
+            src, dst = Path(t) / "src", Path(t) / "dst"
+            src.mkdir()
+            _make_tree(src)
+            result = vault.create_vault(src, dst, vault.DRY_RUN_PASSWORD, dry_run=True, log=_quiet)
+            self.assertTrue(result.files)
+            self.assertFalse(dst.exists())
+            with self.assertRaises(vault.VaultError):  # a real copy still checks it
+                vault.create_vault(src, dst, vault.DRY_RUN_PASSWORD, log=_quiet)
+
 
 class WipeTests(unittest.TestCase):
     def test_wipe_files_removes_everything_but_system_dirs(self):

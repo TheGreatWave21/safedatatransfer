@@ -815,7 +815,6 @@ class SdtApp(App):
         if (d := self._need_drive()) is not None:
             self.drive_flow("wipe", d)
 
-    @work(exclusive=True, group="ui")
     async def _prove_password(self, vault_dir: Path, tries: int = 3) -> bool:
         """Before the original is erased: can the user still open the new vault?"""
         for i in range(tries):
@@ -832,6 +831,7 @@ class SdtApp(App):
                 self.notify("That password does not open the new vault.", severity="error")
         return False
 
+    @work(exclusive=True, group="ui")  # push_screen_wait needs a worker
     async def drive_flow(self, kind: str, drive: Drive) -> None:
         dry = self.dry_run
         if kind != "copy" and drive.is_system:
@@ -853,7 +853,7 @@ class SdtApp(App):
             return
 
         if kind in ("copy", "evacuate"):
-            pw = "dry-run-password" if dry else await self.push_screen_wait(
+            pw = vault.DRY_RUN_PASSWORD if dry else await self.push_screen_wait(
                 PasswordModal(new=True, subject=f"New vault for {drive.letter} {drive.label}"))
             if pw is None:
                 return

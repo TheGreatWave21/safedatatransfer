@@ -49,6 +49,33 @@ class WipeDialogTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].method, "quick")
 
+    def test_drive_keys_open_the_plan_dialog(self):
+        # c / e / w once did nothing: the flow was a coroutine that was never started.
+        from safedatatransfer.common.drives import Drive
+        from safedatatransfer.tui.modals import PlanModal
+
+        drive = Drive(letter="E:", type="removable", label="STICK", filesystem="FAT32",
+                      serial=1, total_bytes=1, free_bytes=1, is_system=False)
+        seen = []
+
+        async def run():
+            app = SdtApp(vault_root=Path("nonexistent"), drive_source=lambda: [drive])
+            async with app.run_test(size=(140, 44)) as pilot:
+                await pilot.pause(0.5)
+                app.selected = "E:"
+                for key in ("c", "e", "w"):
+                    await pilot.press(key)
+                    for _ in range(30):
+                        await pilot.pause(0.1)
+                        if isinstance(app.screen, PlanModal):
+                            break
+                    seen.append((key, type(app.screen).__name__))
+                    await pilot.press("escape")  # cancel: nothing runs
+                    await pilot.pause(0.3)
+
+        asyncio.run(run())
+        self.assertEqual(seen, [("c", "PlanModal"), ("e", "PlanModal"), ("w", "PlanModal")])
+
 
 @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
 class TuiTests(unittest.TestCase):

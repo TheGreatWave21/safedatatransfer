@@ -64,6 +64,10 @@ def _file_key(master: bytes, blob_id: bytes) -> bytes:
     return crypto.hkdf(master, b"sdt-vault file " + blob_id)
 
 
+# Placeholder for dry runs: nothing is encrypted or written, so it is never used as a key.
+DRY_RUN_PASSWORD = "dry-run-password"
+
+
 def check_password(password: str) -> None:
     """Rules for NEW vault passwords (any existing vault still opens with its password)."""
     problem = crypto.password_problem(password)
@@ -83,7 +87,8 @@ def create_vault(
     progress: Progress | None = None,
 ) -> TransferResult:
     """Encrypt every file under source into a new vault, then decrypt-verify each blob."""
-    check_password(password)
+    if not dry_run:  # a dry run writes nothing, so its placeholder password is not checked
+        check_password(password)
     source = source.resolve()
     vault_dir = vault_dir.resolve()
     if vault_dir == source or vault_dir.is_relative_to(source):
