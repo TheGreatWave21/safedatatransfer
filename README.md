@@ -22,6 +22,11 @@ sdt drop receive          # PC 1: shows a code like 482-913
 sdt drop send report.pdf  # PC 2: type the code, done
 ```
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/TheGreatWave21/safedatatransfer/main/docs/demo.gif" alt="sdt UI: a USB stick is copied into an encrypted vault, the vault is unlocked, a file is queued for local drop" width="900"><br>
+  <sub>Run <code>sdt</code> for the full-screen UI. Shown with a demo stick and sample files.</sub>
+</p>
+
 ## About
 
 `sdt` is one small command-line tool (with a keyboard-driven UI) that does two things:

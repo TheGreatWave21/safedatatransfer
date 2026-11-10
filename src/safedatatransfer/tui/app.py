@@ -106,6 +106,12 @@ class DriveTree(DirectoryTree):
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         return [p for p in paths if p.name.lower() not in SKIP_DIRS]
 
+    def reset_node(self, node, label, data=None):
+        # On reload Textual labels the root with path.name, which is "" for a drive root (E:\).
+        if node is self.root and not str(label):
+            label = str(self.path)
+        return super().reset_node(node, label, data)
+
 
 class SdtApp(App):
     TITLE = "SDT"

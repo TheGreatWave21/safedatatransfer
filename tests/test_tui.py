@@ -49,6 +49,29 @@ class WipeDialogTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].method, "quick")
 
+    def test_drive_root_has_a_name_in_the_file_tree(self):
+        from textual.app import App
+
+        from safedatatransfer.tui.app import DriveTree
+        root = Path(Path.cwd().anchor)  # e.g. C:\ (its .name is "")
+        labels = []
+
+        class Host(App):
+            def compose(self):
+                yield DriveTree(root, id="t")
+
+        async def run():
+            app = Host()
+            async with app.run_test() as pilot:
+                tree = app.query_one("#t", DriveTree)
+                await pilot.pause(0.3)
+                await tree.reload()
+                await pilot.pause(0.3)
+                labels.append(tree.root.label.plain)
+
+        asyncio.run(run())
+        self.assertEqual(labels, [str(root)])
+
     def test_drive_keys_open_the_plan_dialog(self):
         # c / e / w once did nothing: the flow was a coroutine that was never started.
         from safedatatransfer.common.drives import Drive
