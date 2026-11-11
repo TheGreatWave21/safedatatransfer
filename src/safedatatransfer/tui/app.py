@@ -17,7 +17,7 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 from textual import on, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
@@ -1180,7 +1180,10 @@ class SdtApp(App):
     @on(TabbedContent.TabActivated)
     def _tab_clicked(self, event: TabbedContent.TabActivated) -> None:
         pane = event.pane.id
-        focused = self.focused
+        try:
+            focused = self.focused
+        except ScreenStackError:
+            return  # a tab message that arrives while the app is closing
         if pane in self.TAB_FOCUS and (focused is None or pane not in
                                        {a.id for a in focused.ancestors_with_self}):
             self.query_one(self.TAB_FOCUS[pane]).focus()

@@ -72,6 +72,13 @@ class WipeDialogTests(unittest.TestCase):
         asyncio.run(run())
         self.assertEqual(labels, [str(root)])
 
+    def test_tab_message_while_closing_does_not_crash(self):
+        # A queued tab switch handled after the last screen is gone once crashed the app
+        # (ScreenStackError) on shutdown.
+        from types import SimpleNamespace
+        app = SdtApp(vault_root=Path("nonexistent"), drive_source=lambda: [])
+        app._tab_clicked(SimpleNamespace(pane=SimpleNamespace(id="drives")))  # no screens yet
+
     def test_drive_keys_open_the_plan_dialog(self):
         # c / e / w once did nothing: the flow was a coroutine that was never started.
         from safedatatransfer.common.drives import Drive
