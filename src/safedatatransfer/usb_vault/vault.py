@@ -526,7 +526,13 @@ def vault_info(vault_dir: Path) -> list[tuple[str, str]]:
         state = "1 manifest copy (made by an older sdt)"
     else:
         state = f"{len(manifests)} manifest copies"
-    k = meta.get("kdf") or {}
+    # Shown only when the settings are valid: a tampered vault.json must not crash `info`.
+    try:
+        params = _kdf_params(meta)
+        kdf = f"scrypt  N=2^{params.n.bit_length() - 1}  r={params.r}  p={params.p}"
+        salt = meta["kdf"]["salt"]
+    except VaultError as e:
+        kdf, salt = f"INVALID: {e}", "?"
     created = datetime.fromtimestamp((vault_dir / VAULT_FILE).stat().st_mtime)
     return [
         ("Vault", str(vault_dir)),
@@ -535,9 +541,8 @@ def vault_info(vault_dir: Path) -> list[tuple[str, str]]:
         ("Encrypted files", str(len(blobs))),
         ("State", state),
         ("Size on disk", f"{on_disk:,} bytes"),
-        ("Key derivation", f"{k.get('name')}  N=2^{int(k.get('n', 1)).bit_length() - 1}  "
-                           f"r={k.get('r')}  p={k.get('p')}"),
-        ("Salt", str(k.get("salt", "?"))),
+        ("Key derivation", kdf),
+        ("Salt", str(salt)),
         ("Cipher", "AES-256-GCM, 1 MiB chunks, HKDF-SHA256 key per file"),
     ]
 
