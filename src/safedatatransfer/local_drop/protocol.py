@@ -227,8 +227,10 @@ def collect_files(paths: list[Path], log: Callable[[str], None] = print) -> list
             for f in sorted(scan.files):
                 rel = PurePosixPath(p.name, *f.relative_to(p).parts).as_posix()
                 out.append(OutgoingFile(f, rel, f.stat().st_size))
+        elif p.exists() or p.is_symlink():
+            raise ProtocolError(f"Cannot send {p}: not a regular file or folder.")
         else:
-            raise FileNotFoundError(p)
+            raise ProtocolError(f"Not found: {p}")
     return out
 
 

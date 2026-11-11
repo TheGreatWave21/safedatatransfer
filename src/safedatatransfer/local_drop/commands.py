@@ -169,6 +169,8 @@ def send(paths: list[Path], to: str | None, via: str, host: str | None, code: st
          hooks: Hooks) -> int:
     """Send files. Returns the number of files sent."""
     log = hooks.log
+    if code is not None:
+        protocol.normalize_code(code)  # a mistyped --code fails now, not after the search
     files = protocol.collect_files(paths, log)
     if not files:
         raise protocol.ProtocolError("Nothing to send.")
@@ -302,6 +304,8 @@ def receiver_name(name: str | None) -> str:
 
 
 def check_receive_dest(dest: Path, allow_cloud: bool) -> None:
+    if dest.exists() and not dest.is_dir():
+        raise protocol.ProtocolError(f"{dest} is a file, not a folder. Use --dest with a folder.")
     cloud = winfs.cloud_folder(dest)
     if cloud and not allow_cloud:
         raise protocol.ProtocolError(f"{dest} is inside {cloud}: received files would be uploaded "

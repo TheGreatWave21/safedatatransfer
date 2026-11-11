@@ -42,7 +42,7 @@ from safedatatransfer.tui.modals import (
 )
 from safedatatransfer.usb_vault import vault
 from safedatatransfer.usb_vault.commands import (
-    DEFAULT_DEST_ROOT, SafetyError, check_wipe_allowed, default_destination, do_wipe,
+    DEFAULT_DEST_ROOT, SafetyError, check_not_inside, check_wipe_allowed, default_destination, do_wipe,
     check_destination, check_no_vaults, drive_identity, still_same_drive,
 )
 from safedatatransfer.usb_vault.transfer import SKIP_DIRS, is_link
@@ -639,7 +639,7 @@ class SdtApp(App):
         for v in self.vaults:
             try:
                 info = dict(vault.vault_info(v))
-            except (OSError, ValueError, KeyError):
+            except (OSError, ValueError, KeyError, vault.VaultError):
                 continue
             vt.add_row(Text(("🔓 " if v in self.unlocked else "🔒 ") + v.name, style="bold"),
                        info["Created"], info["Encrypted files"],
@@ -659,7 +659,7 @@ class SdtApp(App):
         self.selected_vault = Path(event.row_key.value)
         try:
             rows = vault.vault_info(self.selected_vault)
-        except (OSError, ValueError, KeyError) as e:
+        except (OSError, ValueError, KeyError, vault.VaultError) as e:
             rows = [("Error", str(e))]
         self.query_one("#vault-info", Static).update(_kv_table(rows))
         self._render_vault_contents(self.selected_vault)
@@ -733,7 +733,9 @@ class SdtApp(App):
         if (v := self._need_vault()) is not None:
             self.open_flow(v)
 
-    @work(exclusive=True, group="ui")
+    # Own group, not exclusive: another dialog (e.g. u) must never cancel a running operation,
+    # or the UI would stay "busy" forever with the result never shown.
+    @work(group="op")
     async def open_flow(self, v: Path) -> None:
         out = await self.push_screen_wait(PathModal(
             "OPEN VAULT", "Decrypt into this folder (files will be PLAINTEXT):",
@@ -837,7 +839,7 @@ class SdtApp(App):
                 self.notify("That password does not open the new vault.", severity="error")
         return False
 
-    @work(exclusive=True, group="ui")  # push_screen_wait needs a worker
+    @work(group="op")  # push_screen_wait needs a worker; own group: see open_flow
     async def drive_flow(self, kind: str, drive: Drive) -> None:
         dry = self.dry_run
         if kind != "copy" and drive.is_system:
@@ -854,6 +856,7 @@ class SdtApp(App):
                 await asyncio.to_thread(check_no_vaults, drive, False)
             if kind != "wipe":
                 check_destination(plan.dest)
+                check_not_inside(drive, plan.dest)  # before the password is asked
         except SafetyError as e:
             self.notify(str(e), title="Refused", severity="error", timeout=15)
             return
@@ -1078,8 +1081,12 @@ class SdtApp(App):
         if self.drop_running:
             self.notify("Stop the transfer first (k).", severity="warning")
             return
+        if not self.send_paths:
+            self.notify("The send list is already empty.")
+            return
         self.send_paths.clear()
         self._render_send_list()
+        self.notify("Send list cleared.")
 
     def action_drop_send(self) -> None:
         self.action_tab("drop")
@@ -1143,6 +1150,7 @@ class SdtApp(App):
 
     def action_drop_stop(self) -> None:
         if not self.drop_running:
+            self.notify("Nothing to stop: no transfer is running.")
             return
         self.workers.cancel_group(self, "drop")
         self.query_one("#drop-status", Static).update(Text("stopping…", style="yellow"))
@@ -1194,6 +1202,7 @@ class SdtApp(App):
             self.drive_stats.pop(self.selected, None)
         self.poll_drives()
         self.load_vaults()
+        self.notify("Drives and vaults refreshed.", timeout=2)
 
     def action_toggle_banner(self) -> None:
         top = self.query_one("#top")

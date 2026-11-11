@@ -162,10 +162,18 @@ def _encrypt_copy(drive: Drive, dest: Path, dry_run: bool):
     return result
 
 
+def check_not_inside(drive: Drive, dest: Path) -> None:
+    """The vault must not be written onto the stick it copies. Checked before the password."""
+    src, d = Path(drive.root).resolve(), Path(dest).resolve()
+    if d == src or d.is_relative_to(src):
+        raise SafetyError("Destination must not be inside the source.")
+
+
 def cmd_copy(letter: str, dest: Path | None, dry_run: bool) -> int:
     drive = get_drive(letter)
     dest = dest or default_destination(drive)
     check_destination(dest)
+    check_not_inside(drive, dest)
     result = _encrypt_copy(drive, dest, dry_run)
     if result.ok and not dry_run:
         print(f"Open it later with:  sdt vault open \"{result.destination}\"")
@@ -308,6 +316,7 @@ def cmd_evacuate(
     dest = dest or default_destination(drive)
     check_wipe_allowed(drive, allow_fixed=allow_fixed, dest=dest)
     check_destination(dest)
+    check_not_inside(drive, dest)
     check_passes(passes)
     check_no_vaults(drive, allow_vault)
 
@@ -369,6 +378,7 @@ def cmd_vault_info(vault_dir: Path) -> int:
 
 
 def cmd_vault_list(vault_dir: Path) -> int:
+    vault.read_meta(vault_dir)  # a wrong folder fails here, before the password is asked
     manifest = vault.load_manifest(vault_dir, ask_password())
     files = vault.manifest_summary(manifest)
     safe_print(f"Source: {manifest['source']}  label='{manifest['label']}'  {manifest['finished']}")
@@ -422,10 +432,9 @@ def cmd_vault_open(vault_dir: Path, out: Path | None, allow_cloud: bool = False)
     out = out or vault_dir.with_name(vault_dir.name + "_opened")
     print(f"Decrypting {vault_dir} -> {out}")
     print("  Note: the decrypted copy is plaintext. When done:  sdt vault shred \"" f"{out}\"")
-    cloud = vault.winfs.cloud_folder(out)
-    if cloud and not allow_cloud:
-        raise vault.VaultError(f"{out} is inside {cloud}: the decrypted files would be uploaded "
-                               "to the cloud. Use --out with another folder (or --allow-cloud).")
+    # Wrong vault folder or unusable --out: say so before the password is asked.
+    vault.read_meta(vault_dir)
+    vault.check_open_target(out, allow_cloud=allow_cloud)
     errors = vault.open_vault(vault_dir, out, ask_password(), allow_cloud=allow_cloud,
                               log=safe_print)
     print(f"\n{len(errors)} errors")

@@ -263,13 +263,47 @@ def find_vaults_under(root: Path) -> list[Path]:
                    if p.name == VAULT_FILE and (p.parent / BLOB_DIR).is_dir()})
 
 
-def _unlock(vault_dir: Path, password: str) -> tuple[dict, bytes]:
+def read_meta(vault_dir: Path) -> dict:
+    """vault.json, with a clear error for a wrong folder or a damaged file (no password needed).
+    Callers check this before asking for the password."""
+    vault_dir = Path(vault_dir)
+    if not vault_dir.exists():
+        raise VaultError(f"{vault_dir} does not exist.")
+    if not vault_dir.is_dir():
+        raise VaultError(f"{vault_dir} is a file. Give the vault folder (the one with "
+                         f"{VAULT_FILE} in it).")
+    meta_file = vault_dir / VAULT_FILE
+    if not meta_file.is_file():
+        raise VaultError(f"{vault_dir} is not an sdt vault: it has no {VAULT_FILE}.")
     try:
-        meta = json.loads((vault_dir / VAULT_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise VaultError(f"{vault_dir} is not an sdt vault: {e}") from e
-    if meta.get("format") != "sdt-vault" or meta.get("version") != 1:
-        raise VaultError("Unsupported vault format.")
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise VaultError(f"Cannot read {meta_file}: {e.strerror or e}") from e
+    except ValueError as e:
+        raise VaultError(f"{meta_file} is damaged (not valid JSON).") from e
+    if not isinstance(meta, dict) or meta.get("format") != "sdt-vault":
+        raise VaultError(f"{meta_file} is not an sdt vault file.")
+    if meta.get("version") != 1:
+        raise VaultError(f"Unsupported vault version {meta.get('version')!r}: "
+                         "it was made by a newer sdt.")
+    return meta
+
+
+def check_open_target(out_dir: Path, *, allow_cloud: bool = False) -> None:
+    """Where open_vault may write plaintext. Checked before the password is asked."""
+    out_dir = Path(out_dir)
+    cloud = winfs.cloud_folder(out_dir)
+    if cloud and not allow_cloud:
+        raise VaultError(f"{out_dir} is inside {cloud}: the decrypted files would be uploaded "
+                         "to the cloud. Choose another folder (or pass --allow-cloud).")
+    # Only a new or empty folder: it gets the marker that lets `vault shred` destroy it, so
+    # it must never be a folder with other files in it (e.g. Documents).
+    if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
+        raise VaultError(f"{out_dir} already exists and is not empty. Choose a new folder.")
+
+
+def _unlock(vault_dir: Path, password: str) -> tuple[dict, bytes]:
+    meta = read_meta(vault_dir)
     params = _kdf_params(meta)
     copies = []
     for name in (MANIFEST_FILE, MANIFEST_BACKUP):
@@ -385,14 +419,7 @@ def open_vault(
     overwrites partial files before deleting them."""
     vault_dir = Path(vault_dir)
     out_dir = Path(out_dir)
-    cloud = winfs.cloud_folder(out_dir)
-    if cloud and not allow_cloud:
-        raise VaultError(f"{out_dir} is inside {cloud}: the decrypted files would be uploaded "
-                         "to the cloud. Choose another folder (or pass --allow-cloud).")
-    # Only a new or empty folder: it gets the marker that lets `vault shred` destroy it, so
-    # it must never be a folder with other files in it (e.g. Documents).
-    if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
-        raise VaultError(f"{out_dir} already exists and is not empty. Choose a new folder.")
+    check_open_target(out_dir, allow_cloud=allow_cloud)
     manifest, master = _unlock(vault_dir, password)
     out_dir.mkdir(parents=True, exist_ok=True)
     winfs.set_not_indexed(out_dir)
@@ -488,7 +515,7 @@ def manifest_summary(manifest: dict) -> list[FileEntry]:
 def vault_info(vault_dir: Path) -> list[tuple[str, str]]:
     """Everything readable about a vault WITHOUT the password."""
     vault_dir = Path(vault_dir)
-    meta = json.loads((vault_dir / VAULT_FILE).read_text(encoding="utf-8"))
+    meta = read_meta(vault_dir)
     blobs = list((vault_dir / BLOB_DIR).glob("*.enc"))
     manifests = [m for m in (MANIFEST_FILE, MANIFEST_BACKUP) if (vault_dir / m).is_file()]
     on_disk = (sum(b.stat().st_size for b in blobs)
