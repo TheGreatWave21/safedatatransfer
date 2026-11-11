@@ -450,8 +450,9 @@ HELP_NOTES = """\
  3. If anything failed, the drive is NOT wiped.
  4. The stick's identity (serial, size, hardware serial) is re-checked, and
     again after you confirm, so a swapped stick is never erased.
- 5. You must type [b]WIPE <letter>[/b]. The system drive is always refused.
- 6. Only files exactly as verified in the vault are wiped; anything new or
+ 5. You type the vault password once more, so you can't lock yourself out.
+ 6. You must type [b]WIPE <letter>[/b]. The system drive is always refused.
+ 7. Only files exactly as verified in the vault are wiped; anything new or
     changed stops the wipe. Links/junctions are never followed.
 
 [b]Wiping[/b] needs no admin rights and runs no external programs.

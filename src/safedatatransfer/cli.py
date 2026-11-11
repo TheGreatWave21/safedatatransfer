@@ -62,39 +62,42 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="show every drive, not just removable")
 
     p = usb_sub.add_parser("info", help="every detail about a drive")
-    p.add_argument("drive")
+    p.add_argument("drive", help="drive letter, e.g. E:")
     p.add_argument("--scan", action="store_true",
                    help="also count files on non-removable drives (slow on big disks)")
 
     p = usb_sub.add_parser("copy", help="encrypted copy + verify (no wipe)")
-    p.add_argument("drive")
+    p.add_argument("drive", help="drive letter, e.g. E:")
     p.add_argument("--dest", type=Path, help="destination folder (default ~/Downloads/usb-vault/...)")
-    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--dry-run", action="store_true",
+                   help="show what would happen; write and erase nothing")
 
     p = usb_sub.add_parser("wipe", help="erase a drive (asks for confirmation)")
-    p.add_argument("drive")
+    p.add_argument("drive", help="drive letter, e.g. E:")
     _add_wipe_options(p)
-    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--dry-run", action="store_true",
+                   help="show what would happen; write and erase nothing")
 
     p = usb_sub.add_parser("evacuate", help="encrypted copy + verify, then erase the drive")
-    p.add_argument("drive")
+    p.add_argument("drive", help="drive letter, e.g. E:")
     p.add_argument("--dest", type=Path, help="destination folder (default ~/Downloads/usb-vault/...)")
     _add_wipe_options(p)
-    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--dry-run", action="store_true",
+                   help="show what would happen; write and erase nothing")
 
     p_vault = top.add_parser("vault", help="open encrypted vaults made by `sdt usb`")
     vault_sub = p_vault.add_subparsers(dest="cmd", required=True)
     p = vault_sub.add_parser("info", help="vault details that need no password")
-    p.add_argument("vault", type=Path)
+    p.add_argument("vault", type=Path, help="vault folder (the one with vault.json)")
     p = vault_sub.add_parser("list", help="list files in a vault")
-    p.add_argument("vault", type=Path)
+    p.add_argument("vault", type=Path, help="vault folder (the one with vault.json)")
     p = vault_sub.add_parser("open", help="decrypt a vault into a folder")
-    p.add_argument("vault", type=Path)
+    p.add_argument("vault", type=Path, help="vault folder (the one with vault.json)")
     p.add_argument("--out", type=Path, help="output folder (default: <vault>_opened)")
     p.add_argument("--allow-cloud", action="store_true",
                    help="allow a OneDrive/Dropbox/... folder (plaintext would be uploaded)")
     p = vault_sub.add_parser("shred", help="overwrite + delete a folder made by `vault open`")
-    p.add_argument("folder", type=Path)
+    p.add_argument("folder", type=Path, help="folder made by `sdt vault open`")
 
     # ---- Part 2: drop ----
     p_drop = top.add_parser("drop", help="Local drop: secure AirDrop-style transfer")
@@ -102,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     via_help = ("wifi-direct (default): direct PC-to-PC link, no port on your networks; "
                 "lan: normal network, only for networks you trust")
     p = drop_sub.add_parser("send", help="send files or folders to a nearby PC")
-    p.add_argument("paths", nargs="+", type=Path)
+    p.add_argument("paths", nargs="+", type=Path, help="files and folders to send")
     p.add_argument("--to", help="receiver name (default: ask if more than one)")
     p.add_argument("--via", choices=drop.VIA, default="wifi-direct", help=via_help)
     p.add_argument("--host", help="skip discovery, connect to HOST[:PORT]")

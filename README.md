@@ -74,9 +74,10 @@ On the first run, `sdt.cmd` creates a private `.venv` (1–2 minutes), and insta
 Each [release](https://github.com/TheGreatWave21/safedatatransfer/releases) lists the SHA-256 of its files.
 
 ```powershell
-Get-FileHash .\safedatatransfer-0.1.0-py3-none-any.whl     # compare with the release notes
+$whl = (Get-Item .\safedatatransfer-*-py3-none-any.whl).FullName
+Get-FileHash $whl     # compare with the release notes
 py -m venv $HOME\sdt-env
-& $HOME\sdt-env\Scripts\python -I -m pip install --only-binary=:all: .\safedatatransfer-0.1.0-py3-none-any.whl
+& $HOME\sdt-env\Scripts\python -I -m pip install --only-binary=:all: $whl
 & $HOME\sdt-env\Scripts\sdt --version
 ```
 </details>
@@ -137,7 +138,7 @@ The UI locks unlocked vaults after 10 minutes without input.
 
 ## How `evacuate` works
 
-1. **Password:** you type it twice. It must be at least 12 characters, with no very common word and no simple pattern. A few random words work well.
+1. **Password:** you type it twice. It must be at least 12 characters and not a simple pattern. A very common word (like `password`) is only allowed in passwords of 20 characters or more. A few random words work well.
 2. **Encrypt:** it checks for free space, then encrypts every file (and hidden NTFS data streams) into the vault.
 3. **Verify:** it decrypts every file again, read past the Windows cache, and compares SHA-256 with the original. **If any file fails, nothing is wiped.**
 4. **Same stick?** It checks volume serial, size, file system, hardware serial and disk number.
@@ -199,7 +200,7 @@ Blob sizes still roughly reveal file sizes. An interrupted copy shows up as `INC
 - **Encryption:** everything is end-to-end encrypted with AES-256-GCM, including file names and sizes.
 - **No open ports while waiting.** After the link is up, only the PC at the other end can connect, and only once.
 - **Random name:** the receiver advertises a random name (`sdt-4821`), not your PC's name.
-- **Approval:** you see the file list and must type `y` before anything is saved.
+- **Approval:** you see the file list and must accept before anything is saved (type `y`, or click **Accept** in the UI, where **Decline** is preselected).
 - **File names** are sanitized: no `..`, no reserved names, no invisible right-to-left tricks.
 - **Received files** get the "Mark of the Web", like browser downloads.
 - **Pairing:** Wi-Fi Direct pairings made for a transfer are removed afterwards.

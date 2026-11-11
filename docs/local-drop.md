@@ -14,8 +14,8 @@ you ask for it explicitly with `--via lan`.
 | How long the port stays open | until one connection arrives (max 2 min), then closed | same |
 | Sender | never listens, only connects out | never listens, only connects out |
 
-You never need to turn the firewall off. Windows may ask once whether Python may accept
-connections. Allowing it is safe for the reasons above. Nothing is reachable from your
+You never need to turn the firewall off. Windows may ask once whether sdt (or Python, if
+you run it from source) may accept connections. Allowing it is safe for the reasons above. Nothing is reachable from your
 home, work or café network in the default mode.
 
 ## Layers
@@ -45,7 +45,8 @@ whether someone else is on the network or can see the radio traffic.
 | Tampering, replay, reordering | Every frame is authenticated; nonces are counters, so a replayed, reordered or modified frame fails decryption and the transfer stops. |
 | Corrupted / partial files | Each file is written to a hidden `.sdt-partial` file, its SHA-256 is checked, and only then is it renamed into place. Failed files are deleted. |
 | Malicious file names | Paths from the sender are sanitized: no `..`, no drive letters or absolute paths, no Windows reserved names (`CON`, `COM¹`, `CONOUT$`, …), no control or invisible characters (e.g. the right-to-left override that makes `invoice[RLO]fdp.exe` look like a PDF). Existing files are never overwritten; a new copy is saved as `name (1).ext`. |
-| Unwanted files | The receiver sees the sender name, the file list (exactly as it will be saved) and the total size, and must type `y` before anything is written. Offers larger than the free disk space are refused. |
+| Unwanted files | The receiver sees the sender name, the file list (exactly as it will be saved) and the total size, and must accept before anything is written (type `y`, or click
+**Accept** in the UI, where **Decline** is preselected). Offers larger than the free disk space are refused. |
 | Fake prompts on screen | Everything the other side sends (names, messages) has control characters removed before it is printed, so it can't inject terminal escape codes. |
 | Other nearby devices | The receiver accepts **one** Wi-Fi Direct link per session and stops advertising as soon as it is up. Further link requests are ignored. |
 | Received files and Windows | Received files get the "Mark of the Web", like a browser download, so SmartScreen warns before a received program runs and Office opens documents in Protected View. They are marked "do not index" for Windows Search. Partial files are overwritten before they are deleted. A OneDrive/Dropbox destination is refused unless you pass `--allow-cloud`. |
@@ -101,4 +102,4 @@ deleted.
 ## Ideas for later
 - Remember trusted PCs so the code is only needed the first time.
 - Explorer right-click "Send to → sdt" and a tray icon.
-- Progress bar and resume for very large transfers.
+- Resume for very large transfers that were interrupted.
