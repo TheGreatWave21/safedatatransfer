@@ -249,12 +249,14 @@ def safe_relpath(rel: str) -> Path:
     """Turn a peer-supplied path into a safe relative path (no traversal, no drive letters)."""
     parts = []
     for part in rel.split("/"):
-        part = _visible_only(_BAD_CHARS.sub("_", part)).strip().rstrip(" .")
+        # Shortened first: a cut name ending in "." or " " would be saved by Windows
+        # without them, i.e. under another name than the one the receiver accepted.
+        part = _visible_only(_BAD_CHARS.sub("_", part))[:200].strip().rstrip(" .")
         if part in ("", ".", ".."):
             raise ProtocolError(f"Unsafe file name from sender: {clean_text(rel)!r}")
         if part.split(".")[0].rstrip(" ").upper() in _RESERVED:
             part = "_" + part
-        parts.append(part[:200])
+        parts.append(part)
     if not parts or len(parts) > 32:
         raise ProtocolError(f"Unsafe file name from sender: {clean_text(rel)!r}")
     return Path(*parts)

@@ -145,8 +145,8 @@ def create_vault(
     sources = scan.files
     total = 0
     for src in sources:
-        try:
-            total += src.stat().st_size * 2  # encrypt pass + verify pass
+        try:  # encrypt pass + verify pass, hidden data streams included
+            total += (src.stat().st_size + sum(s for _, s in winfs.list_streams(src))) * 2
         except OSError:
             pass
     done = 0
@@ -199,7 +199,7 @@ def create_vault(
             st = src.stat()
             if (st.st_size, st.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
                 raise OSError("file changed while it was being copied; run again")
-            advance(st.st_size)
+            advance(st.st_size + sum(s["size"] for s in streams))  # the verify pass
             result.files.append(FileEntry(
                 rel.as_posix(), st.st_size, src_hash, st.st_mtime,
                 tuple((s["name"], s["size"], s["sha256"]) for s in streams)))
@@ -400,6 +400,19 @@ def load_manifest(vault_dir: Path, password: str) -> dict:
     return _unlock(Path(vault_dir), password)[0]
 
 
+# Where a file named like the marker (e.g. from a vault once opened onto the stick's root)
+# is restored, so it does not collide with the marker open_vault writes there.
+MARKER_RENAMED = OPENED_MARKER + " (from the vault)"
+
+
+def _out_relpath(path: str) -> Path:
+    """Where open_vault writes the manifest entry `path`, relative to the output folder."""
+    rel = _safe_relpath(path)
+    if len(rel.parts) == 1 and rel.name.lower() == OPENED_MARKER:
+        return Path(MARKER_RENAMED)
+    return rel
+
+
 def _safe_relpath(path: str) -> Path:
     parts = PurePosixPath(path).parts
     if not parts or any(p in ("", ".", "..") or ":" in p or "\\" in p for p in parts) \
@@ -428,7 +441,7 @@ def open_vault(
     # leaves anything you add to the folder later alone.
     planned = []
     for e in manifest["files"]:
-        rel = _safe_relpath(e["path"]).as_posix()
+        rel = _out_relpath(e["path"]).as_posix()
         planned += [rel, rel + ".sdt-partial"]
     write_marker(out_dir, planned)
     errors: list[str] = []
@@ -437,7 +450,9 @@ def open_vault(
     if progress:
         progress(0, total)
     for e in manifest["files"]:
-        rel = _safe_relpath(e["path"])
+        rel = _out_relpath(e["path"])
+        if rel.as_posix() != e["path"]:
+            log(f"  note: {e['path']} is restored as {rel} (that name is used by sdt)")
         dst = out_dir / rel
         tmp = dst.with_name(dst.name + ".sdt-partial")
         try:

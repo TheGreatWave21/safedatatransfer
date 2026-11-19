@@ -190,7 +190,7 @@ Blob sizes still roughly reveal file sizes. An interrupted copy shows up as `INC
 - only writes into an empty or new folder;
 - marks the files "do not index" for Windows Search;
 - overwrites partially written files before deleting them;
-- leaves a `.sdt-opened` marker. `sdt vault shred` refuses any folder without it, and only destroys the files that `open` wrote.
+- leaves a `.sdt-opened` marker. `sdt vault shred` refuses any folder without it, and only destroys the files that `open` wrote. (A file of your own with that name at the top of the vault is restored as `.sdt-opened (from the vault)`.)
 </details>
 
 <details>

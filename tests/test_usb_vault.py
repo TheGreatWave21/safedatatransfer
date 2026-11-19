@@ -107,6 +107,41 @@ class VaultTests(unittest.TestCase):
                 vault.create_vault(src, dst, vault.DRY_RUN_PASSWORD, log=_quiet)
 
 
+    def test_progress_counts_hidden_data_streams(self):
+        # A downloaded file carries a Zone.Identifier stream; progress once ran past 100 %.
+        with tempfile.TemporaryDirectory() as t:
+            src = Path(t) / "src"
+            src.mkdir()
+            (src / "a.bin").write_bytes(b"x" * 1000)
+            try:
+                with open(f"{src / 'a.bin'}:hidden", "wb") as f:
+                    f.write(b"y" * 5000)
+            except OSError:
+                self.skipTest("this file system has no data streams")
+            seen = []
+            vault.create_vault(src, Path(t) / "v", PW, log=_quiet, scrypt_n=FAST,
+                               progress=lambda d, tot: seen.append((d, tot)))
+            self.assertTrue(all(d <= tot for d, tot in seen), seen)
+            self.assertEqual(seen[-1], (12000, 12000))
+
+    def test_file_named_like_the_open_marker(self):
+        # A stick that once held an opened vault at its root has a .sdt-opened file;
+        # opening its vault collided with the marker and left that file out.
+        with tempfile.TemporaryDirectory() as t:
+            src = Path(t) / "src"
+            src.mkdir()
+            (src / vault.OPENED_MARKER).write_text("old marker")
+            (src / "doc.txt").write_text("hi")
+            dst = Path(t) / "vault"
+            vault.create_vault(src, dst, PW, log=_quiet, scrypt_n=FAST)
+            out = Path(t) / "out"
+            self.assertEqual(vault.open_vault(dst, out, PW, log=_quiet), [])
+            self.assertEqual((out / vault.MARKER_RENAMED).read_text(), "old marker")
+            self.assertEqual((out / "doc.txt").read_text(), "hi")
+            listed = vault.read_marker(out)  # the real marker still works for `vault shred`
+            self.assertEqual(listed & {vault.MARKER_RENAMED, "doc.txt"},
+                             {vault.MARKER_RENAMED, "doc.txt"})
+
 class WipeTests(unittest.TestCase):
     def test_wipe_files_removes_everything_but_system_dirs(self):
         with tempfile.TemporaryDirectory() as t:

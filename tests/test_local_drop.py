@@ -149,6 +149,16 @@ class SafePathTests(unittest.TestCase):
         self.assertEqual(p.safe_relpath("con.txt"), Path("_con.txt"))
         self.assertEqual(p.safe_relpath("dir/file.txt"), Path("dir", "file.txt"))
 
+    def test_long_names_never_end_in_dot_or_space(self):
+        # Windows drops a trailing "." or " ", so the file would be saved under another
+        # name than the one the receiver accepted.
+        for name in ("a" * 199 + ".txt", "b" * 199 + " c", "c" * 198 + ". .d"):
+            part = p.safe_relpath(name).name
+            self.assertLessEqual(len(part), 200)
+            self.assertFalse(part.endswith((".", " ")), repr(part[-5:]))
+        with self.assertRaises(p.ProtocolError):
+            p.safe_relpath("." * 250 + "x")  # nothing left after cutting and trimming
+
     def test_codes(self):
         code = p.new_code()
         self.assertRegex(code, r"^\d{3}-\d{3}$")
